@@ -44,7 +44,7 @@ async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "he
       return runAgentRegister(result.id, result.dir, result.name);
 
     case "agent:heartbeat":
-      return runAgentHeartbeat(result.id, result.status);
+      return runAgentHeartbeat(result.alias, result.channel, result.status);
 
     case "group:create":
       return runGroupCreate(result.id, result.name, result.description);
@@ -74,10 +74,10 @@ async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "he
       return runPromptShow(result.channel, result.alias);
 
     case "inbox:poll":
-      return runInboxPoll(result.agent);
+      return runInboxPoll(result.alias, result.channel);
 
     case "inbox:wait":
-      return runInboxWait(result.agent, result.timeout);
+      return runInboxWait(result.alias, result.channel, result.timeout);
 
     case "message:send":
       return runMessageSend({

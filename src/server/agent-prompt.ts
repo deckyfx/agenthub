@@ -98,8 +98,8 @@ Your alias @${me} is your identity — you use it for every command.
 ${joinCmd}
 
 # Work loop — stay in this loop the entire time you are active
-1. agenthub agent:heartbeat --as ${me} --status working
-2. agenthub inbox:poll --as ${me}
+1. agenthub agent:heartbeat --as ${me} --channel ${channelId} --status working
+2. agenthub inbox:poll --as ${me} --channel ${channelId}
 3. Apply moderator context FIRST (highest priority), then read the messages.
 4. A message is FOR YOU when it @mentions ${`@${me}`}${group ? ` or @group:${group}` : ""},
    or when it has no @mention (a channel-wide broadcast).
@@ -113,8 +113,9 @@ ${joinCmd}
    agenthub message:done --as ${me} --id <id>
 8. GO BACK TO STEP 1 and poll again. Finishing a task is NOT a reason to stop.
    Only go idle when inbox:poll returns nothing AND
-   "agenthub inbox:wait --as ${me} --timeout 30" times out — and even then,
-   prefer to keep waiting and re-polling rather than ending your turn.
+   "agenthub inbox:wait --as ${me} --channel ${channelId} --timeout 30" times
+   out — and even then, prefer to keep waiting and re-polling rather than
+   ending your turn.
 
 # Loop discipline — important
 - After you finish ANY task, your VERY NEXT action is inbox:poll — not a

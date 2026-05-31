@@ -1,4 +1,5 @@
 import { AgentStore } from "../stores/agent-store";
+import { ChannelStore } from "../stores/channel-store";
 import type { AgentStatus } from "../stores/agent-store";
 
 /**
@@ -23,11 +24,20 @@ export async function runAgentRegister(
 /**
  * agent:heartbeat — Update agent status and last_heartbeat timestamp.
  * Should be called by agents at the start of every loop iteration.
+ *
+ * Identity is channel-scoped, so the caller is identified by (alias, channel)
+ * and resolved to its per-channel agent id.
+ *
+ * @param alias - The agent's channel alias.
+ * @param channelId - The channel the agent is working in.
+ * @param status - The status to record.
  */
 export async function runAgentHeartbeat(
-  id: string,
+  alias: string,
+  channelId: string,
   status: AgentStatus,
 ): Promise<void> {
-  const agent = await AgentStore.heartbeat(id, status);
+  const agentId = await ChannelStore.resolveAlias(alias, channelId);
+  const agent = await AgentStore.heartbeat(agentId, status);
   console.log(JSON.stringify({ ok: true, agent }));
 }

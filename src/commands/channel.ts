@@ -29,15 +29,19 @@ export async function runChannelJoin(
   role?: string,
   groupId?: string,
 ): Promise<void> {
-  // Identity is the alias: --agent is optional and defaults to the alias, so an
-  // agent never has to invent or sync a separate id.
-  const id = (agentId?.trim() || alias).trim();
+  // Identity is channel-scoped: the same alias in two channels is two different
+  // agents. Unless an explicit --agent id is given, derive a per-channel id so
+  // their status / working_dir / group memberships never collapse together.
+  const id = agentId?.trim() || `${channelId}::${alias.trim()}`;
 
-  // Auto-register the agent so join is the only setup step needed.
+  // Auto-register the agent so join is the only setup step needed. Preserve any
+  // working_dir already recorded for this identity (e.g. set when invited from
+  // the dashboard) so re-joining doesn't wipe it.
+  const existing = await AgentStore.findById(id);
   await AgentStore.upsert({
     id,
-    display_name: id,
-    working_dir: "",
+    display_name: alias.trim(),
+    working_dir: existing?.working_dir ?? "",
     status: "idle",
   });
 
@@ -53,10 +57,13 @@ export async function runChannelJoin(
 
 /** channel:leave — Unsubscribe an agent from a channel (releases its alias) */
 export async function runChannelLeave(
-  agentId: string,
+  aliasOrId: string,
   channelId: string,
 ): Promise<void> {
-  await ChannelStore.leave(agentId, channelId);
+  // Accept either the channel alias or the raw (channel-scoped) agent id.
+  const members = await ChannelStore.getMembers(channelId);
+  const match = members.find((m) => m.alias === aliasOrId || m.agent_id === aliasOrId);
+  await ChannelStore.leave(match?.agent_id ?? aliasOrId, channelId);
   console.log(JSON.stringify({ ok: true }));
 }
 

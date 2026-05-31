@@ -125,8 +125,11 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
   .post(
     "/channels/:id/members",
     async ({ params, body }) => {
-      // Identity is the alias: agent_id is optional and defaults to it.
-      const id = (body.agent_id?.trim() || body.alias).trim();
+      // Identity is channel-scoped: derive a per-channel agent id from the
+      // alias unless an explicit one is given, so the same alias in another
+      // channel stays a distinct agent.
+      const alias = body.alias.trim();
+      const id = body.agent_id?.trim() || `${params.id}::${alias}`;
 
       // Preserve any working_dir the agent already registered with; only
       // overwrite when the invite explicitly provides one. This keeps the
@@ -137,7 +140,7 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
       // Auto-register so inviting is the only step needed.
       await AgentStore.upsert({
         id,
-        display_name: id,
+        display_name: alias,
         working_dir: workingDir,
         status: "idle",
       });

@@ -7,7 +7,7 @@ export type CliResult =
   | { type: "server"; port?: number }
   | { type: "init"; dbPath?: string }
   | { type: "agent:register"; id: string; dir: string; name: string }
-  | { type: "agent:heartbeat"; id: string; status: AgentStatus }
+  | { type: "agent:heartbeat"; alias: string; channel: string; status: AgentStatus }
   | { type: "group:create"; id: string; name: string; description?: string }
   | { type: "group:add"; group: string; agent: string }
   | { type: "group:members"; group: string }
@@ -17,8 +17,8 @@ export type CliResult =
   | { type: "channel:list"; agent: string }
   | { type: "channel:members"; channel: string }
   | { type: "prompt"; channel: string; alias: string }
-  | { type: "inbox:poll"; agent: string }
-  | { type: "inbox:wait"; agent: string; timeout: number }
+  | { type: "inbox:poll"; alias: string; channel: string }
+  | { type: "inbox:wait"; alias: string; channel: string; timeout: number }
   | {
       type: "message:send";
       from?: string;
@@ -88,10 +88,12 @@ export function parseCli(): CliResult {
         };
 
       case "agent:heartbeat":
-        requireFlags(flags, ["id", "status"]);
+        // Identity is channel-scoped: --as/--alias gives the alias, plus --channel.
+        requireFlags(flags, ["agent", "channel", "status"]);
         return {
           type: "agent:heartbeat",
-          id: flags["id"]!,
+          alias: flags["agent"]!,
+          channel: flags["channel"]!,
           status: flags["status"] as AgentStatus,
         };
 
@@ -159,14 +161,15 @@ export function parseCli(): CliResult {
         return { type: "prompt", channel: flags["channel"]!, alias: flags["alias"]! };
 
       case "inbox:poll":
-        requireFlags(flags, ["agent"]);
-        return { type: "inbox:poll", agent: flags["agent"]! };
+        requireFlags(flags, ["agent", "channel"]);
+        return { type: "inbox:poll", alias: flags["agent"]!, channel: flags["channel"]! };
 
       case "inbox:wait":
-        requireFlags(flags, ["agent"]);
+        requireFlags(flags, ["agent", "channel"]);
         return {
           type: "inbox:wait",
-          agent: flags["agent"]!,
+          alias: flags["agent"]!,
+          channel: flags["channel"]!,
           timeout: flags["timeout"] ? parseInt(flags["timeout"], 10) : 30,
         };
 
@@ -290,7 +293,7 @@ ${bold}Commands:${reset}
     --id <id> --dir <path> --name <name>
 
   ${cyan}agent:heartbeat${reset}                    Send heartbeat + status
-    --id <id> --status <idle|working|waiting|blocked|done>
+    --as <alias> --channel <id> --status <idle|working|waiting|blocked|done>
 
   ${cyan}group:create${reset}                       Create a project group
     --id <id> --name <name> [--description <desc>]
@@ -319,11 +322,11 @@ ${bold}Commands:${reset}
   ${cyan}prompt${reset}                             Print a member's join prompt (execute & follow it)
     --channel <id> --alias <name>
 
-  ${cyan}inbox:poll${reset}                         Poll for new messages + context
-    --agent <id>
+  ${cyan}inbox:poll${reset}                         Poll for new messages + context (channel-scoped)
+    --as <alias> --channel <id>
 
-  ${cyan}inbox:wait${reset}                         Block until message arrives
-    --agent <id> [--timeout <seconds>]
+  ${cyan}inbox:wait${reset}                         Block until message arrives (channel-scoped)
+    --as <alias> --channel <id> [--timeout <seconds>]
 
   ${cyan}message:send${reset}                       Send a message (recipients & type parsed from body)
     --channel <id> --payload '<text with @alias / @group:id and optional /type>'

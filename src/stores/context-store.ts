@@ -1,6 +1,6 @@
 import { and, eq, isNull, or } from "drizzle-orm";
 import { db } from "../db";
-import { contextInjections, agentChannels } from "../db/schema";
+import { contextInjections } from "../db/schema";
 import type { ContextInjection, NewContextInjection } from "../db/schema";
 
 /** Repository for context injection operations */
@@ -17,39 +17,51 @@ export class ContextStore {
   }
 
   /**
-   * Get all unapplied context injections relevant to an agent.
-   * Matches:
-   * - target_agent = agentId
-   * - target_agent = 'all'
-   * - target_agent = @alias (resolved from agent's channel subscriptions)
-   * - target_agent = group:<group_id> (handled by caller — group IDs passed in)
+   * Get unapplied context relevant to an agent *within one channel*.
+   *
+   * Channel-scoped: only injections for this channel (or channel-less direct
+   * injections) are considered, so the same alias in another channel never sees
+   * this channel's context. Matches when `target_agent` is any of:
+   * - the resolved agentId
+   * - the bare alias, or the `@alias` form
+   * - `'all'`
+   * - `group:<id>` for a group the agent belongs to (ids passed in)
+   *
+   * @param channelId - Channel being polled.
+   * @param agentId - The agent's resolved id (for agentId-form targets).
+   * @param alias - The agent's channel alias (for alias / @alias targets).
+   * @param groupIds - The agent's group ids (for group:<id> targets).
    */
-  static async pollForAgent(
+  static async pollForChannelAgent(
+    channelId: string,
     agentId: string,
+    alias: string,
     groupIds: string[] = [],
   ): Promise<ContextInjection[]> {
-    // Build target_agent candidates: agentId, 'all', group:<id> variants
-    const targets = [agentId, "all", ...groupIds.map((g) => `group:${g}`)];
+    const targets = new Set([
+      agentId,
+      alias,
+      `@${alias}`,
+      "all",
+      ...groupIds.map((g) => `group:${g}`),
+    ]);
 
-    // Also get aliases for this agent across channels
-    const subs = await db
-      .select({ alias: agentChannels.alias, channel_id: agentChannels.channel_id })
-      .from(agentChannels)
-      .where(eq(agentChannels.agent_id, agentId));
-
-    // @alias form
-    const aliasTargets = subs.map((s) => `@${s.alias}`);
-
-    const allTargets = [...targets, ...aliasTargets];
-
-    // Fetch unapplied injections matching any target
+    // Unapplied injections for this channel, or channel-less direct injections.
     const all = await db
       .select()
       .from(contextInjections)
-      .where(isNull(contextInjections.applied_at))
+      .where(
+        and(
+          isNull(contextInjections.applied_at),
+          or(
+            eq(contextInjections.channel_id, channelId),
+            isNull(contextInjections.channel_id),
+          ),
+        ),
+      )
       .orderBy(contextInjections.created_at);
 
-    return all.filter((c) => allTargets.includes(c.target_agent));
+    return all.filter((c) => targets.has(c.target_agent));
   }
 
   /** Mark a context injection as applied by an agent */

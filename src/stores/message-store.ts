@@ -34,20 +34,21 @@ export class MessageStore {
   }
 
   /**
-   * Poll pending messages addressed to an agent.
+   * Poll pending messages addressed to an alias *within a single channel*.
    *
-   * @param alias - The polling agent's alias (its identity in this model).
+   * Identity is channel-scoped: the same alias in two channels is two different
+   * agents, so polling is always bounded to one channel and never bleeds across.
+   *
+   * @param channelId - The channel being polled.
+   * @param alias - The polling agent's channel alias.
    */
-  static async pollForAgent(alias: string): Promise<Message[]> {
-    const channelIds = await subscribedChannelIds(alias);
-    if (channelIds.length === 0) return [];
-
+  static async pollForChannelAlias(channelId: string, alias: string): Promise<Message[]> {
     return db
       .select()
       .from(messages)
       .where(
         and(
-          inArray(messages.channel_id, channelIds),
+          eq(messages.channel_id, channelId),
           eq(messages.status, "pending"),
           eq(messages.to_alias, alias),
         ),
@@ -126,20 +127,19 @@ export class MessageStore {
   }
 
   /**
-   * Whether any pending message is waiting for the agent. Backs `inbox:wait`.
+   * Whether any pending message waits for an alias in a channel. Backs
+   * `inbox:wait`. Channel-scoped, mirroring {@link pollForChannelAlias}.
    *
-   * @param alias - The waiting agent's alias.
+   * @param channelId - The channel being waited on.
+   * @param alias - The waiting agent's channel alias.
    */
-  static async hasPendingForAgent(alias: string): Promise<boolean> {
-    const channelIds = await subscribedChannelIds(alias);
-    if (channelIds.length === 0) return false;
-
+  static async hasPendingForChannelAlias(channelId: string, alias: string): Promise<boolean> {
     const result = await db
       .select({ id: messages.id })
       .from(messages)
       .where(
         and(
-          inArray(messages.channel_id, channelIds),
+          eq(messages.channel_id, channelId),
           eq(messages.status, "pending"),
           eq(messages.to_alias, alias),
         ),

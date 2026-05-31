@@ -4,50 +4,47 @@ import { ChannelStore } from "../stores/channel-store";
 import { GroupStore } from "../stores/group-store";
 
 /**
- * inbox:poll — Return all pending messages and unapplied context for an agent.
+ * inbox:poll — Return pending messages, unapplied context, and the member
+ * roster for an alias *within a single channel*.
  *
- * Output format matches the PRD spec:
- * { messages: [...], context: [...], channel_members: [...] }
+ * Identity is channel-scoped: `@bob` in two channels is two different agents,
+ * so polling is bounded to (channel, alias) and never bleeds across channels.
+ *
+ * @param alias - The polling agent's channel alias.
+ * @param channelId - The channel to poll.
  */
-export async function runInboxPoll(agentId: string): Promise<void> {
-  // Get agent's group memberships for context targeting
+export async function runInboxPoll(alias: string, channelId: string): Promise<void> {
+  // Resolve the channel-scoped identity (throws if the alias hasn't joined).
+  const agentId = await ChannelStore.resolveAlias(alias, channelId);
+
   const groups = await GroupStore.getGroupsForAgent(agentId);
   const groupIds = groups.map((g) => g.id);
 
   const [msgs, ctxItems] = await Promise.all([
-    MessageStore.pollForAgent(agentId),
-    ContextStore.pollForAgent(agentId, groupIds),
+    MessageStore.pollForChannelAlias(channelId, alias),
+    ContextStore.pollForChannelAgent(channelId, agentId, alias, groupIds),
   ]);
 
-  // Get channel_members for all subscribed channels (gives agents peer context)
-  const channels = await ChannelStore.findByAgent(agentId);
-  const membersByChannel: Record<string, Array<{ alias: string; agent_id: string; role: string | null }>> = {};
-
-  for (const ch of channels) {
-    const subs = await ChannelStore.getMembers(ch.id);
-    membersByChannel[ch.id] = subs.map((s) => ({
-      alias: s.alias,
-      agent_id: s.agent_id,
-      role: s.role_description ?? null,
-    }));
-  }
-
-  // Flatten channel_members as array (first channel, for backward compat)
-  const channelMembers = Object.values(membersByChannel).flat();
+  const subs = await ChannelStore.getMembers(channelId);
+  const channelMembers = subs.map((s) => ({
+    alias: s.alias,
+    agent_id: s.agent_id,
+    role: s.role_description ?? null,
+  }));
 
   // Mark messages as read
   for (const msg of msgs) {
     if (msg.id) await MessageStore.markRead(msg.id);
   }
 
-  const output = {
-    messages: msgs,
-    context: ctxItems,
-    channel_members: channelMembers,
-    channels: membersByChannel,
-  };
-
-  console.log(JSON.stringify(output));
+  console.log(
+    JSON.stringify({
+      messages: msgs,
+      context: ctxItems,
+      channel_members: channelMembers,
+      channel: channelId,
+    }),
+  );
 }
 
 /**
@@ -56,18 +53,20 @@ export async function runInboxPoll(agentId: string): Promise<void> {
  * Polls the DB every 1 second. This leverages Claude CLI's natural blocking
  * behavior — the agent genuinely idles while waiting.
  *
- * @param agentId - The agent to wait for
+ * @param alias - The waiting agent's channel alias.
+ * @param channelId - The channel to wait on.
  * @param timeoutSeconds - Max seconds to wait before returning (default: 30)
  */
 export async function runInboxWait(
-  agentId: string,
+  alias: string,
+  channelId: string,
   timeoutSeconds: number = 30,
 ): Promise<void> {
   const startTime = Date.now();
   const deadlineMs = startTime + timeoutSeconds * 1000;
 
   while (Date.now() < deadlineMs) {
-    const hasNew = await MessageStore.hasPendingForAgent(agentId);
+    const hasNew = await MessageStore.hasPendingForChannelAlias(channelId, alias);
     if (hasNew) {
       console.log(JSON.stringify({ ok: true, reason: "message_arrived" }));
       return;
