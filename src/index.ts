@@ -4,6 +4,7 @@ import { runInit } from "./commands/init";
 import { runAgentRegister, runAgentHeartbeat } from "./commands/agent";
 import { runGroupCreate, runGroupAdd, runGroupMembers } from "./commands/group";
 import { runChannelCreate, runChannelJoin, runChannelLeave, runChannelList, runChannelMembers } from "./commands/channel";
+import { runPromptShow } from "./commands/prompt";
 import { runInboxPoll, runInboxWait } from "./commands/inbox";
 import { runMessageSend, runMessageDone } from "./commands/message";
 import { runContextInject, runContextApplied } from "./commands/context";
@@ -68,6 +69,9 @@ async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "he
 
     case "channel:members":
       return runChannelMembers(result.channel);
+
+    case "prompt":
+      return runPromptShow(result.channel, result.alias);
 
     case "inbox:poll":
       return runInboxPoll(result.agent);

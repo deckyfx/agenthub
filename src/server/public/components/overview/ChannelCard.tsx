@@ -23,6 +23,7 @@ export function ChannelCard({
   return (
     <button
       onClick={onSelect}
+      aria-label={`Open channel ${channel.id} (${members.length} member${members.length === 1 ? "" : "s"})`}
       className="group flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-left transition-all hover:border-indigo-600/60 hover:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-600/50"
     >
       <div className="flex items-center gap-2">

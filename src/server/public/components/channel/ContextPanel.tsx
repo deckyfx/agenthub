@@ -14,7 +14,7 @@ export function ContextPanel({ channelId }: { channelId: string }) {
   const [addOpen, setAddOpen] = useState(false);
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60">
+    <aside aria-label="Background and context" className="flex max-h-56 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 lg:max-h-none lg:w-72">
       <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5">
         <BookOpen size={15} className="text-zinc-400" />
         <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Background &amp; Context</span>

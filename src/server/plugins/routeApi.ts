@@ -5,6 +5,7 @@ import { GroupStore } from "../../stores/group-store";
 import { MessageStore } from "../../stores/message-store";
 import { ContextStore } from "../../stores/context-store";
 import { sendMessage } from "../../commands/message";
+import { reconstructPrompt } from "../../commands/prompt";
 import type { AgentStatus } from "../../stores/agent-store";
 
 /**
@@ -127,11 +128,17 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
       // Identity is the alias: agent_id is optional and defaults to it.
       const id = (body.agent_id?.trim() || body.alias).trim();
 
+      // Preserve any working_dir the agent already registered with; only
+      // overwrite when the invite explicitly provides one. This keeps the
+      // value available later for re-displaying the agent's join prompt.
+      const existing = await AgentStore.findById(id);
+      const workingDir = body.working_dir?.trim() || existing?.working_dir || "";
+
       // Auto-register so inviting is the only step needed.
       await AgentStore.upsert({
         id,
         display_name: id,
-        working_dir: "",
+        working_dir: workingDir,
         status: "idle",
       });
 
@@ -155,9 +162,18 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
         alias: t.String(),
         role_description: t.Optional(t.String()),
         group_id: t.Optional(t.String()),
+        working_dir: t.Optional(t.String()),
       }),
     },
   )
+
+  .get("/channels/:id/members/:agentId/prompt", async ({ params }) => {
+    // Rebuild the agent's original join prompt from persisted state so the
+    // moderator can hand it to a replacement agent and have it resume the role.
+    const result = await reconstructPrompt(params.id, params.agentId);
+    if (!result) return { ok: false as const, error: "Member not found" };
+    return { ok: true as const, prompt: result.prompt, alias: result.alias };
+  })
 
   .delete("/channels/:id/members/:agentId", async ({ params }) => {
     await ChannelStore.leave(params.agentId, params.id);

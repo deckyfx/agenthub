@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <title>AgentHub</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="tailwindcss" />
+    <link rel="stylesheet" href="styles.css" />
+    <script>
+      // Apply the saved accent + mode before first paint to avoid a flash.
+      try {
+        var a = localStorage.getItem("agenthub:accent");
+        if (a && a !== "indigo") document.documentElement.dataset.accent = a;
+        var m = localStorage.getItem("agenthub:mode");
+        if (m === "light") document.documentElement.dataset.mode = m;
+      } catch (e) {}
+    </script>
   </head>
   <body class="bg-zinc-950 text-zinc-100 min-h-screen antialiased">
     <div id="root"></div>

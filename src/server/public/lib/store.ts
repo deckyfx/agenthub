@@ -28,9 +28,11 @@ interface HubState {
   archiveChannel: (channelId: string) => Promise<void>;
   invite: (
     channelId: string,
-    opts: { alias: string; role?: string; group?: string; extraContext?: string },
+    opts: { alias: string; role?: string; group?: string; workingDir?: string; extraContext?: string },
   ) => Promise<void>;
   removeMember: (channelId: string, agentId: string) => Promise<void>;
+  /** Reconstruct a member's ready-to-paste join prompt from persisted state. */
+  getAgentPrompt: (channelId: string, agentId: string) => Promise<string>;
   sendMessage: (channelId: string, body: string) => Promise<void>;
   addContext: (
     channelId: string,
@@ -96,11 +98,12 @@ export const useHub = create<HubState>((set, get) => ({
     await get().poll();
   },
 
-  invite: async (channelId, { alias, role, group, extraContext }) => {
+  invite: async (channelId, { alias, role, group, workingDir, extraContext }) => {
     await api.api.channels({ id: channelId }).members.post({
       alias,
       role_description: role?.trim() || undefined,
       group_id: group?.trim() || undefined,
+      working_dir: workingDir?.trim() || undefined,
     });
     if (extraContext?.trim()) {
       await api.api.context.post({
@@ -116,6 +119,19 @@ export const useHub = create<HubState>((set, get) => ({
   removeMember: async (channelId, agentId) => {
     await api.api.channels({ id: channelId }).members({ agentId }).delete();
     await get().poll();
+  },
+
+  getAgentPrompt: async (channelId, agentId) => {
+    const res = await api.api.channels({ id: channelId }).members({ agentId }).prompt.get();
+    const data = res.data as { ok?: boolean; prompt?: string; error?: string } | string | null;
+    if (data && typeof data === "object" && data.ok && typeof data.prompt === "string") {
+      return data.prompt;
+    }
+    const error =
+      data && typeof data === "object" && typeof data.error === "string"
+        ? data.error
+        : "Failed to load prompt — is the server up to date?";
+    throw new Error(error);
   },
 
   sendMessage: async (channelId, body) => {

@@ -20,8 +20,8 @@ export function OverviewPage({ onSelectChannel }: OverviewPageProps) {
         <div className="flex items-center gap-3">
           <MessagesSquare size={22} className="text-indigo-400" />
           <h1 className="text-xl font-bold text-zinc-100">Channels</h1>
-          <span className="text-sm text-zinc-500">{channels.length}</span>
-          <Button className="ml-auto" icon={<Plus size={16} />} onClick={() => setNewOpen(true)}>
+          <span className="mr-1 text-sm text-zinc-500">{channels.length}</span>
+          <Button icon={<Plus size={16} />} onClick={() => setNewOpen(true)}>
             New channel
           </Button>
         </div>

@@ -16,6 +16,7 @@ export type CliResult =
   | { type: "channel:leave"; agent: string; channel: string }
   | { type: "channel:list"; agent: string }
   | { type: "channel:members"; channel: string }
+  | { type: "prompt"; channel: string; alias: string }
   | { type: "inbox:poll"; agent: string }
   | { type: "inbox:wait"; agent: string; timeout: number }
   | {
@@ -151,6 +152,11 @@ export function parseCli(): CliResult {
       case "channel:members":
         requireFlags(flags, ["channel"]);
         return { type: "channel:members", channel: flags["channel"]! };
+
+      case "prompt":
+        // Print a member's join prompt. Identity is the alias within a channel.
+        requireFlags(flags, ["channel", "alias"]);
+        return { type: "prompt", channel: flags["channel"]!, alias: flags["alias"]! };
 
       case "inbox:poll":
         requireFlags(flags, ["agent"]);
@@ -309,6 +315,9 @@ ${bold}Commands:${reset}
 
   ${cyan}channel:members${reset}                    List channel members
     --channel <id>
+
+  ${cyan}prompt${reset}                             Print a member's join prompt (execute & follow it)
+    --channel <id> --alias <name>
 
   ${cyan}inbox:poll${reset}                         Poll for new messages + context
     --agent <id>

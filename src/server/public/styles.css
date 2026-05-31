@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+/*
+ * ──────────────────────────────────────────────────────────────────────────
+ *  AgentHub theming — two independent axes
+ *
+ *  Tailwind v4 emits each palette shade as a `--color-*` custom property that
+ *  its utilities consume via var(). We theme by *overriding* those properties,
+ *  so existing `text-indigo-400`, `bg-zinc-900`, etc. re-skin with no component
+ *  changes. The two axes compose freely:
+ *
+ *    - data-accent="emerald|violet|amber"  → remap the indigo ramp to that hue
+ *    - data-mode="light"                   → invert the zinc ramp (dark → light)
+ *
+ *  Defaults (indigo accent, dark mode) need no attribute. Both are set on
+ *  <html> (see index.html / lib/theme). The light block is declared *after* the
+ *  accent blocks so, in light mode, the accent text shades resolve to the
+ *  accent's own darker 600 for contrast on light surfaces.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+
+/* ── Accent axis (remap the indigo ramp) ─────────────────────────────────── */
+
+:root[data-accent="emerald"] {
+  --color-indigo-200: #a7f3d0;
+  --color-indigo-300: #6ee7b7;
+  --color-indigo-400: #34d399;
+  --color-indigo-500: #10b981;
+  --color-indigo-600: #059669;
+  --color-indigo-700: #047857;
+}
+
+:root[data-accent="violet"] {
+  --color-indigo-200: #ddd6fe;
+  --color-indigo-300: #c4b5fd;
+  --color-indigo-400: #a78bfa;
+  --color-indigo-500: #8b5cf6;
+  --color-indigo-600: #7c3aed;
+  --color-indigo-700: #6d28d9;
+}
+
+:root[data-accent="amber"] {
+  --color-indigo-200: #fde68a;
+  --color-indigo-300: #fcd34d;
+  --color-indigo-400: #fbbf24;
+  --color-indigo-500: #f59e0b;
+  --color-indigo-600: #d97706;
+  --color-indigo-700: #b45309;
+}
+
+/* ── Mode axis: light surfaces ───────────────────────────────────────────── */
+
+:root[data-mode="light"] {
+  /* Invert the zinc ramp: dark-mode usages map to light equivalents. */
+  --color-zinc-950: #ffffff;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-600: #71717a;
+  --color-zinc-500: #71717a;
+  --color-zinc-400: #52525b;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-200: #27272a;
+  --color-zinc-100: #18181b;
+  --color-zinc-50: #09090b;
+
+  /* The accent's light text shades (-300/-400) are too pale on white; resolve
+     them to the *current accent's* 600 so any accent stays legible in light. */
+  --color-indigo-300: var(--color-indigo-600);
+  --color-indigo-400: var(--color-indigo-600);
+
+  /* Same idea for per-sender jewel tones used as label text (-300 shade). */
+  --color-sky-300: #0284c7;
+  --color-emerald-300: #059669;
+  --color-amber-300: #b45309;
+  --color-violet-300: #7c3aed;
+  --color-rose-300: #e11d48;
+  --color-cyan-300: #0891b2;
+  --color-fuchsia-300: #c026d3;
+  --color-lime-300: #4d7c0f;
+  --color-teal-300: #0d9488;
+  --color-orange-300: #ea580c;
+}
+
+/* ── Base affordances ────────────────────────────────────────────────────── */
+
+@layer base {
+  /*
+   * Tailwind v4 no longer gives buttons a pointer cursor by default. Restore it
+   * for all interactive controls; explicit `cursor-*` utilities still win since
+   * this lives in @layer base.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  summary {
+    cursor: pointer;
+  }
+
+  /* Slim, unobtrusive scrollbars that adapt to the active theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-zinc-700) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-zinc-700);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-zinc-600);
+  }
+}

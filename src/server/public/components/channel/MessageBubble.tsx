@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Check, CheckCheck } from "lucide-react";
 import { cn, senderStyle } from "../ui";
+import { renderMentions } from "../../lib/mentions";
 import type { Message } from "../../../../db/schema";
 
 /** Accent color per message type (text + subtle background chip). */
@@ -21,7 +22,14 @@ const TYPE_CHIP: Record<string, string> = {
  * colored initial avatar on the left, then sender name, type, time and a
  * delivery check. Long payloads are collapsed and expand on click.
  */
-export function MessageBubble({ msg }: { msg: Message }) {
+export function MessageBubble({
+  msg,
+  onMentionClick,
+}: {
+  msg: Message;
+  /** Called with a bare alias when an @mention in the body is clicked. */
+  onMentionClick?: (alias: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const from = msg.from_alias ?? msg.from_agent;
   const style = senderStyle(from);
@@ -31,6 +39,9 @@ export function MessageBubble({ msg }: { msg: Message }) {
   let body = msg.payload;
   try { body = JSON.stringify(JSON.parse(msg.payload), null, 2); } catch { /* keep raw */ }
   const long = msg.payload.length > 220 || msg.payload.includes("\n");
+  // Collapsed long messages show the raw payload (clamped); expanded shows the
+  // prettified body. Mentions are highlighted in both.
+  const shown = expanded || !long ? body : msg.payload;
 
   return (
     <div className={cn("flex gap-3 rounded-xl border-l-2 py-2 pl-2.5 pr-3", style.bubble, style.border)}>
@@ -48,13 +59,22 @@ export function MessageBubble({ msg }: { msg: Message }) {
             <StatusCheck status={msg.status} />
           </span>
         </div>
-        <button onClick={() => long && setExpanded((v) => !v)} className={cn("block w-full text-left text-sm text-zinc-300", long && "cursor-pointer")}>
-          {expanded || !long ? (
-            <pre className="whitespace-pre-wrap break-words font-sans">{body}</pre>
-          ) : (
-            <span className="line-clamp-2 whitespace-pre-wrap break-words">{msg.payload}</span>
+        <pre
+          className={cn(
+            "whitespace-pre-wrap break-words font-sans text-sm text-zinc-300",
+            !expanded && long && "line-clamp-2",
           )}
-        </button>
+        >
+          {renderMentions(shown, onMentionClick)}
+        </pre>
+        {long && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-1 text-xs font-medium text-indigo-400 hover:text-indigo-300"
+          >
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        )}
       </div>
     </div>
   );
