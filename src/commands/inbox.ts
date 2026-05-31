@@ -67,7 +67,7 @@ export async function runInboxWait(
   const deadlineMs = startTime + timeoutSeconds * 1000;
 
   while (Date.now() < deadlineMs) {
-    const hasNew = await MessageStore.hasNewMessageSince(agentId, 0);
+    const hasNew = await MessageStore.hasPendingForAgent(agentId);
     if (hasNew) {
       console.log(JSON.stringify({ ok: true, reason: "message_arrived" }));
       return;

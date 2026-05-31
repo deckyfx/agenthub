@@ -4,6 +4,7 @@ import { ChannelStore } from "../../stores/channel-store";
 import { GroupStore } from "../../stores/group-store";
 import { MessageStore } from "../../stores/message-store";
 import { ContextStore } from "../../stores/context-store";
+import { sendMessage } from "../../commands/message";
 import type { AgentStatus } from "../../stores/agent-store";
 
 /**
@@ -119,14 +120,25 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
   .post(
     "/channels/:id/members",
     async ({ params, body }) => {
+      // Identity is the alias: agent_id is optional and defaults to it.
+      const id = (body.agent_id?.trim() || body.alias).trim();
+
+      // Auto-register so inviting is the only step needed.
+      await AgentStore.upsert({
+        id,
+        display_name: id,
+        working_dir: "",
+        status: "idle",
+      });
+
       // Auto-upsert group and membership when group_id is provided
       if (body.group_id) {
         await GroupStore.upsert({ id: body.group_id, display_name: body.group_id });
-        await GroupStore.addMember(body.group_id, body.agent_id);
+        await GroupStore.addMember(body.group_id, id);
       }
 
       const subscription = await ChannelStore.join(
-        body.agent_id,
+        id,
         params.id,
         body.alias,
         body.role_description ?? undefined,
@@ -135,7 +147,7 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
     },
     {
       body: t.Object({
-        agent_id: t.String(),
+        agent_id: t.Optional(t.String()),
         alias: t.String(),
         role_description: t.Optional(t.String()),
         group_id: t.Optional(t.String()),
@@ -158,26 +170,20 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
   .post(
     "/messages",
     async ({ body }) => {
-      const message = await MessageStore.send({
-        channel_id: body.channel_id,
-        from_agent: body.from_agent,
-        from_alias: body.from_alias ?? undefined,
-        to_agent: body.to_agent || undefined,   // normalise "" → undefined → NULL
-        to_alias: body.to_alias || undefined,   // normalise "" → undefined → NULL
-        type: body.type,
-        payload: body.payload,
+      // Bare send: recipients + type are parsed from the body text. Dashboard
+      // messages are from "moderator" unless an explicit sender is given.
+      const messages = await sendMessage({
+        from: body.from,
+        channelId: body.channel_id,
+        body: body.body,
       });
-      return { ok: true, message };
+      return { ok: true, sent_count: messages.length, messages };
     },
     {
       body: t.Object({
         channel_id: t.String(),
-        from_agent: t.String(),
-        from_alias: t.Optional(t.String()),
-        to_agent: t.Optional(t.String()),
-        to_alias: t.Optional(t.String()),
-        type: t.String(),
-        payload: t.String(),
+        body: t.String(),
+        from: t.Optional(t.String()),
       }),
     },
   )

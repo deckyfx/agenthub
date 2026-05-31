@@ -330,7 +330,6 @@ function AddContextForm({
 // ─── Subscribe agent form ─────────────────────────────────────────────────────
 
 function SubscribeAgentForm({ channelId, onDone }: { channelId: string; onDone: () => void }) {
-  const [agentId, setAgentId] = useState("");
   const [alias, setAlias] = useState("");
   const [role, setRole] = useState("");
   const [group, setGroup] = useState("");
@@ -342,22 +341,20 @@ function SubscribeAgentForm({ channelId, onDone }: { channelId: string; onDone: 
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!agentId.trim() || !alias.trim()) return;
+            if (!alias.trim()) return;
             setLoading(true);
             await api.api.channels({ id: channelId }).members.post({
-              agent_id: agentId.trim(),
               alias: alias.trim(),
               role_description: role.trim() || undefined,
               group_id: group.trim() || undefined,
             });
-            setAgentId(""); setAlias(""); setRole(""); setGroup("");
+            setAlias(""); setRole(""); setGroup("");
             setLoading(false);
             onDone();
             close();
           }}
           className="space-y-2"
         >
-          <Field label="Agent ID" value={agentId} onChange={setAgentId} placeholder="crm-backend" mono />
           <Field label="Alias (without @)" value={alias} onChange={setAlias} placeholder="bon" mono />
           <Field label="Role (optional)" value={role} onChange={setRole} placeholder="Backend API agent" />
           <Field label="Group (optional — auto-created)" value={group} onChange={setGroup} placeholder="crm" mono />
@@ -371,14 +368,15 @@ function SubscribeAgentForm({ channelId, onDone }: { channelId: string; onDone: 
 // ─── Send message form ────────────────────────────────────────────────────────
 
 /**
- * Send a message with Discord-style @mention routing.
+ * Send a message as the moderator. Bare by design: just type.
  *
- * - @alias       → resolves alias to agent_id, sends direct message
- * - @alias @bob  → fan-out: one message per mentioned agent
- * - @group:crm   → fan-out to all agents in group crm
- * - (no mention) → broadcast to all agents in the channel
+ * - @alias / @bob   → addressed to those members (parsed from the text)
+ * - @group:crm      → addressed to everyone in group crm
+ * - (no mention)    → broadcast to the whole channel
+ * - leading /type   → optional type, e.g. "/task …" or "/question …"
  *
- * Autocomplete: type @ to see a dropdown of channel members.
+ * Routing happens server-side from the body text — the form only posts the raw
+ * message. Type @ for a member/group autocomplete.
  */
 function SendMessageForm({
   channelId,
@@ -390,89 +388,17 @@ function SendMessageForm({
   onSent: () => void;
 }) {
   const [text, setText] = useState("");
-  const [type, setType] = useState("question");
   const [loading, setLoading] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [groups, setGroups] = useState<Array<{ id: string; display_name: string }>>([]);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fetch groups for @group: resolution
+  // Fetch groups so they can be @mentioned / autocompleted
   useEffect(() => {
     api.api.groups.get().then((r) => {
       if (r.data?.groups) setGroups(r.data.groups);
     });
   }, []);
-
-  // alias → agent_id map from current channel members
-  const aliasMap = Object.fromEntries(members.map((m) => [m.alias, m.agent_id]));
-
-  /** Extract @alias mentions from text (not @group: prefixed ones) */
-  function extractMentions(t: string): string[] {
-    const raw = [...t.matchAll(/@([\w-]+)/g)].map((m) => m[1] ?? "");
-    return [...new Set(raw)];
-  }
-
-  /** Resolve a single mention string to { to_agent, to_alias } */
-  function resolveMention(mention: string): { to_agent: string; to_alias: string } | null {
-    // @group:crm syntax
-    if (mention.startsWith("group:")) {
-      const groupId = mention.slice(6);
-      return { to_agent: `group:${groupId}`, to_alias: `@group:${groupId}` };
-    }
-    const agentId = aliasMap[mention];
-    if (!agentId) return null;
-    return { to_agent: agentId, to_alias: mention };
-  }
-
-  /** Fan-out one message per resolved target, or broadcast if none */
-  async function sendMessages(payload: string) {
-    const mentions = extractMentions(payload);
-    const resolved = mentions.map(resolveMention).filter(Boolean) as Array<{
-      to_agent: string;
-      to_alias: string;
-    }>;
-
-    if (resolved.length === 0) {
-      // Broadcast
-      await api.api.messages.post({
-        channel_id: channelId,
-        from_agent: "moderator",
-        to_alias: "all",
-        type,
-        payload,
-      });
-      return;
-    }
-
-    // Fan-out to each group or agent mentioned
-    for (const { to_agent, to_alias } of resolved) {
-      if (to_agent.startsWith("group:")) {
-        // Expand group → individual messages
-        const groupId = to_agent.slice(6);
-        const res = await api.api.groups({ id: groupId }).members.get();
-        const groupMembers = (res.data?.members ?? []) as Array<{ id: string }>;
-        for (const member of groupMembers) {
-          await api.api.messages.post({
-            channel_id: channelId,
-            from_agent: "moderator",
-            to_agent: member.id,
-            to_alias,
-            type,
-            payload,
-          });
-        }
-      } else {
-        await api.api.messages.post({
-          channel_id: channelId,
-          from_agent: "moderator",
-          to_agent,
-          to_alias,
-          type,
-          payload,
-        });
-      }
-    }
-  }
 
   // ── Autocomplete ──────────────────────────────────────────────────────────
 
@@ -523,7 +449,7 @@ function SendMessageForm({
             e.preventDefault();
             if (!text.trim()) return;
             setLoading(true);
-            await sendMessages(text.trim());
+            await api.api.messages.post({ channel_id: channelId, body: text.trim() });
             setText("");
             setLoading(false);
             onSent();
@@ -531,22 +457,12 @@ function SendMessageForm({
           }}
           className="space-y-2"
         >
-          {/* Type selector row */}
-          <div className="flex items-center gap-2">
-            <p className="text-xs text-gray-500 shrink-0">Type</p>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-blue-500"
-            >
-              {["question", "command", "context", "answer", "result", "status"].map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-600 ml-1">
-              Use @alias to target · @group:id for groups · no mention = broadcast
-            </p>
-          </div>
+          {/* Hint row */}
+          <p className="text-xs text-gray-600">
+            <span className="text-gray-400">@alias</span> targets a member ·{" "}
+            <span className="text-gray-400">@group:id</span> a group · no mention = broadcast ·{" "}
+            optional <span className="text-gray-400">/type</span> prefix
+          </p>
 
           {/* Textarea with @mention autocomplete */}
           <div className="relative">

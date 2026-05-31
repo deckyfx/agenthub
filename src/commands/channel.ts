@@ -1,5 +1,6 @@
 import { ChannelStore } from "../stores/channel-store";
 import { GroupStore } from "../stores/group-store";
+import { AgentStore } from "../stores/agent-store";
 
 /** channel:create — Create a new channel */
 export async function runChannelCreate(
@@ -22,19 +23,31 @@ export async function runChannelCreate(
  *     --alias bon --role "Backend API agent" --group crm
  */
 export async function runChannelJoin(
-  agentId: string,
+  agentId: string | undefined,
   channelId: string,
   alias: string,
   role?: string,
   groupId?: string,
 ): Promise<void> {
+  // Identity is the alias: --agent is optional and defaults to the alias, so an
+  // agent never has to invent or sync a separate id.
+  const id = (agentId?.trim() || alias).trim();
+
+  // Auto-register the agent so join is the only setup step needed.
+  await AgentStore.upsert({
+    id,
+    display_name: id,
+    working_dir: "",
+    status: "idle",
+  });
+
   // Auto-upsert group and membership when --group is given
   if (groupId) {
     await GroupStore.upsert({ id: groupId, display_name: groupId });
-    await GroupStore.addMember(groupId, agentId);
+    await GroupStore.addMember(groupId, id);
   }
 
-  const sub = await ChannelStore.join(agentId, channelId, alias, role);
+  const sub = await ChannelStore.join(id, channelId, alias, role);
   console.log(JSON.stringify({ ok: true, subscription: sub, group: groupId ?? null }));
 }
 

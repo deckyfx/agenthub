@@ -1,37 +1,21 @@
-import { and, eq, inArray, isNull, or, SQL } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import { messages, agentChannels } from "../db/schema";
 import type { Message, NewMessage } from "../db/schema";
 
+// Re-export the message-type vocabulary from the shared parser so existing
+// imports (`import type { MessageType } from "../stores/message-store"`) keep working.
+export type { MessageType } from "../lib/message-parse";
+
 /**
- * Condition that matches messages addressed to `agentId` or broadcast.
- * Handles all storage variants:
- *   - to_agent = agentId          (direct message)
- *   - to_agent IS NULL            (broadcast, CLI path)
- *   - to_agent = ''               (broadcast, empty string from dashboard)
- *   - to_alias = 'all'            (broadcast, explicit dashboard path)
+ * Repository for message operations.
+ *
+ * Routing is alias based: recipients are resolved at send time (broadcasts and
+ * groups are expanded to one row per member), so `messages.to_alias` always
+ * holds the concrete recipient alias and matching here is a simple equality.
  */
-function forAgent(agentId: string): SQL {
-  return or(
-    eq(messages.to_agent, agentId),
-    isNull(messages.to_agent),
-    eq(messages.to_agent, ""),
-    eq(messages.to_alias, "all"),
-  )!;
-}
-
-export type MessageType =
-  | "task"
-  | "result"
-  | "question"
-  | "answer"
-  | "command"
-  | "context"
-  | "status";
-
-/** Repository for message operations */
 export class MessageStore {
-  /** Send a message to a channel */
+  /** Insert a message row. */
   static async send(data: NewMessage): Promise<Message> {
     const result = await db.insert(messages).values(data).returning();
     const msg = result[0];
@@ -39,7 +23,7 @@ export class MessageStore {
     return msg;
   }
 
-  /** Find message by ID */
+  /** Find a message by its numeric id. */
   static async findById(id: number): Promise<Message | null> {
     const result = await db
       .select()
@@ -50,20 +34,13 @@ export class MessageStore {
   }
 
   /**
-   * Poll unread messages for an agent.
-   * Returns all pending messages from subscribed channels
-   * that are addressed to this agent or broadcast (to_agent = null).
+   * Poll pending messages addressed to an agent.
+   *
+   * @param alias - The polling agent's alias (its identity in this model).
    */
-  static async pollForAgent(agentId: string): Promise<Message[]> {
-    // Get agent's subscribed channel IDs
-    const subs = await db
-      .select({ channel_id: agentChannels.channel_id })
-      .from(agentChannels)
-      .where(eq(agentChannels.agent_id, agentId));
-
-    if (subs.length === 0) return [];
-
-    const channelIds = subs.map((s) => s.channel_id);
+  static async pollForAgent(alias: string): Promise<Message[]> {
+    const channelIds = await subscribedChannelIds(alias);
+    if (channelIds.length === 0) return [];
 
     return db
       .select()
@@ -72,13 +49,13 @@ export class MessageStore {
         and(
           inArray(messages.channel_id, channelIds),
           eq(messages.status, "pending"),
-          forAgent(agentId),
+          eq(messages.to_alias, alias),
         ),
       )
       .orderBy(messages.created_at);
   }
 
-  /** Mark a message as read */
+  /** Mark a message as read (sets status + read_at). */
   static async markRead(id: number): Promise<void> {
     await db
       .update(messages)
@@ -86,7 +63,7 @@ export class MessageStore {
       .where(eq(messages.id, id));
   }
 
-  /** Mark a message as done */
+  /** Mark a message as done (sets status + done_at). */
   static async markDone(id: number): Promise<void> {
     await db
       .update(messages)
@@ -94,7 +71,7 @@ export class MessageStore {
       .where(eq(messages.id, id));
   }
 
-  /** Get all messages in a channel (for dashboard) */
+  /** Get every message in a channel (dashboard feed). */
   static async findByChannel(channelId: string): Promise<Message[]> {
     return db
       .select()
@@ -103,33 +80,31 @@ export class MessageStore {
       .orderBy(messages.created_at);
   }
 
-  /** Get all messages for a specific agent across channels (for dashboard) */
-  static async findByAgent(agentId: string): Promise<Message[]> {
+  /** Get every message an agent sent or received, across channels (dashboard). */
+  static async findByAgent(alias: string): Promise<Message[]> {
+    const channelIds = await subscribedChannelIds(alias);
+    if (channelIds.length === 0) return [];
+
     return db
       .select()
       .from(messages)
       .where(
-        or(eq(messages.from_agent, agentId), eq(messages.to_agent, agentId)),
+        and(
+          inArray(messages.channel_id, channelIds),
+          or(eq(messages.from_alias, alias), eq(messages.to_alias, alias)),
+        ),
       )
       .orderBy(messages.created_at);
   }
 
   /**
-   * Check if any new pending message has arrived for the agent
-   * since a given timestamp. Used by inbox:wait polling loop.
+   * Whether any pending message is waiting for the agent. Backs `inbox:wait`.
+   *
+   * @param alias - The waiting agent's alias.
    */
-  static async hasNewMessageSince(
-    agentId: string,
-    since: number,
-  ): Promise<boolean> {
-    const subs = await db
-      .select({ channel_id: agentChannels.channel_id })
-      .from(agentChannels)
-      .where(eq(agentChannels.agent_id, agentId));
-
-    if (subs.length === 0) return false;
-
-    const channelIds = subs.map((s) => s.channel_id);
+  static async hasPendingForAgent(alias: string): Promise<boolean> {
+    const channelIds = await subscribedChannelIds(alias);
+    if (channelIds.length === 0) return false;
 
     const result = await db
       .select({ id: messages.id })
@@ -138,11 +113,20 @@ export class MessageStore {
         and(
           inArray(messages.channel_id, channelIds),
           eq(messages.status, "pending"),
-          forAgent(agentId),
+          eq(messages.to_alias, alias),
         ),
       )
       .limit(1);
 
     return result.length > 0;
   }
+}
+
+/** Channel ids the agent (by alias = agent id) is subscribed to. */
+async function subscribedChannelIds(alias: string): Promise<string[]> {
+  const subs = await db
+    .select({ channel_id: agentChannels.channel_id })
+    .from(agentChannels)
+    .where(eq(agentChannels.agent_id, alias));
+  return subs.map((s) => s.channel_id);
 }

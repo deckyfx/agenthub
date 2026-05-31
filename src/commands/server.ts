@@ -1,10 +1,10 @@
 import { startServer } from "../server";
 import { MigrationManager } from "../db/migration-manager";
-import { envConfig } from "../env-config";
 
 /**
  * server — Start the AgentHub dashboard and API server.
- * Auto-migrates the database on startup in development mode.
+ * Always ensures the database schema is up to date before serving, so a fresh
+ * install works whether or not `agenthub init` was run first.
  * Usage: agenthub server [--port 3000]
  */
 export async function runServer(port?: number): Promise<void> {
@@ -12,11 +12,8 @@ export async function runServer(port?: number): Promise<void> {
     process.env["SERVER_PORT"] = String(port);
   }
 
-  // Ensure DB tables exist before accepting requests
-  await MigrationManager.init({
-    autoMigrate: envConfig.isDevelopment,
-    strict: !envConfig.isDevelopment,
-  });
+  // Ensure DB tables exist before accepting requests (binary uses embedded SQL).
+  await MigrationManager.init({ autoMigrate: true });
 
   startServer();
 }

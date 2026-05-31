@@ -5,14 +5,14 @@ import type { MessageType } from "./stores/message-store";
 
 export type CliResult =
   | { type: "server"; port?: number }
-  | { type: "init"; dbPath: string }
+  | { type: "init"; dbPath?: string }
   | { type: "agent:register"; id: string; dir: string; name: string }
   | { type: "agent:heartbeat"; id: string; status: AgentStatus }
   | { type: "group:create"; id: string; name: string; description?: string }
   | { type: "group:add"; group: string; agent: string }
   | { type: "group:members"; group: string }
   | { type: "channel:create"; id: string; topic: string; by: string }
-  | { type: "channel:join"; agent: string; channel: string; alias: string; role?: string; group?: string }
+  | { type: "channel:join"; agent?: string; channel: string; alias: string; role?: string; group?: string }
   | { type: "channel:leave"; agent: string; channel: string }
   | { type: "channel:list"; agent: string }
   | { type: "channel:members"; channel: string }
@@ -20,11 +20,10 @@ export type CliResult =
   | { type: "inbox:wait"; agent: string; timeout: number }
   | {
       type: "message:send";
-      from: string;
+      from?: string;
       channel: string;
       to?: string;
-      toGroup?: string;
-      msgType: MessageType;
+      msgType?: MessageType;
       payload: string;
     }
   | { type: "message:done"; id: number; agent: string }
@@ -54,6 +53,18 @@ export function parseCli(): CliResult {
   // Build a simple flag map from remaining args
   const flags = parseFlags(args.slice(1));
 
+  // Identity synonyms: an agent's identity is its alias. Let --as / --alias
+  // stand in for --agent / --id on the commands that identify the caller, so
+  // the agent only ever passes one token. (channel:join keeps --alias for the
+  // alias itself and only borrows --as for the optional explicit id.)
+  if (cmd !== "channel:join") {
+    const identity = flags["agent"] ?? flags["as"] ?? flags["alias"];
+    if (identity !== undefined) {
+      flags["agent"] ??= identity;
+      flags["id"] ??= identity;
+    }
+  }
+
   try {
     if (cmd === "server") {
       return {
@@ -64,7 +75,7 @@ export function parseCli(): CliResult {
 
     switch (cmd) {
       case "init":
-        return { type: "init", dbPath: flags["db"] ?? "./hub.db" };
+        return { type: "init", dbPath: flags["db"] };
 
       case "agent:register":
         requireFlags(flags, ["id", "dir", "name"]);
@@ -114,10 +125,11 @@ export function parseCli(): CliResult {
         };
 
       case "channel:join":
-        requireFlags(flags, ["agent", "channel", "alias"]);
+        // --agent is optional; identity defaults to --alias.
+        requireFlags(flags, ["channel", "alias"]);
         return {
           type: "channel:join",
-          agent: flags["agent"]!,
+          agent: flags["agent"] ?? flags["as"],
           channel: flags["channel"]!,
           alias: flags["alias"]!,
           role: flags["role"],
@@ -153,14 +165,15 @@ export function parseCli(): CliResult {
         };
 
       case "message:send":
-        requireFlags(flags, ["from", "channel", "type", "payload"]);
+        // Only channel + payload are required. Sender defaults to "moderator";
+        // recipients and type come from @mentions / a leading /type in the body.
+        requireFlags(flags, ["channel", "payload"]);
         return {
           type: "message:send",
-          from: flags["from"]!,
+          from: flags["from"] ?? flags["as"],
           channel: flags["channel"]!,
           to: flags["to"],
-          toGroup: flags["to-group"],
-          msgType: flags["type"] as MessageType,
+          msgType: flags["type"] as MessageType | undefined,
           payload: flags["payload"]!,
         };
 
@@ -285,8 +298,8 @@ ${bold}Commands:${reset}
   ${cyan}channel:create${reset}                     Create a channel
     --id <id> --topic <topic> [--by <agent>]
 
-  ${cyan}channel:join${reset}                       Subscribe to channel with alias
-    --agent <id> --channel <id> --alias <name> [--role <desc>]
+  ${cyan}channel:join${reset}                       Subscribe to channel with alias (auto-registers)
+    --channel <id> --alias <name> [--role <desc>] [--group <id>] [--as <id>]
 
   ${cyan}channel:leave${reset}                      Unsubscribe from channel
     --agent <id> --channel <id>
@@ -303,10 +316,9 @@ ${bold}Commands:${reset}
   ${cyan}inbox:wait${reset}                         Block until message arrives
     --agent <id> [--timeout <seconds>]
 
-  ${cyan}message:send${reset}                       Send a message
-    --from <id|@alias> --channel <id> [--to <id|@alias>] [--to-group <id>]
-    --type <task|result|question|answer|command|context|status>
-    --payload '<json>'
+  ${cyan}message:send${reset}                       Send a message (recipients & type parsed from body)
+    --channel <id> --payload '<text with @alias / @group:id and optional /type>'
+    [--as <alias>]  (sender, default: moderator)  [--to <alias>]  [--type <type>]
 
   ${cyan}message:done${reset}                       Mark message as done
     --id <id> --agent <id>

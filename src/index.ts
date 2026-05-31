@@ -2,7 +2,7 @@ import { parseCli, printUsage } from "./cli-parser";
 import { runServer } from "./commands/server";
 import { runInit } from "./commands/init";
 import { runAgentRegister, runAgentHeartbeat } from "./commands/agent";
-import { runGroupCreate, runGroupAdd, runGroupMembers, runGroupBroadcastMessage } from "./commands/group";
+import { runGroupCreate, runGroupAdd, runGroupMembers } from "./commands/group";
 import { runChannelCreate, runChannelJoin, runChannelLeave, runChannelList, runChannelMembers } from "./commands/channel";
 import { runInboxPoll, runInboxWait } from "./commands/inbox";
 import { runMessageSend, runMessageDone } from "./commands/message";
@@ -76,15 +76,6 @@ async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "he
       return runInboxWait(result.agent, result.timeout);
 
     case "message:send":
-      if (result.toGroup) {
-        return runGroupBroadcastMessage(
-          result.from,
-          result.toGroup,
-          result.channel,
-          result.msgType,
-          result.payload,
-        );
-      }
       return runMessageSend({
         from: result.from,
         channelId: result.channel,

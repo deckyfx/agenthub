@@ -6,7 +6,6 @@ interface Props {
 }
 
 interface FormState {
-  agentId: string;
   alias: string;
   group: string;
   role: string;
@@ -15,7 +14,6 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  agentId: "",
   alias: "",
   group: "",
   role: "",
@@ -39,63 +37,58 @@ export function GeneratePromptPanel({ channelId, channelTopic }: Props) {
   }
 
   function generate() {
-    const { agentId, alias, group, role, workingDir, extraContext } = form;
-    if (!agentId.trim() || !alias.trim()) return;
+    const { alias, group, role, workingDir, extraContext } = form;
+    if (!alias.trim()) return;
+    const me = alias.trim();
 
     const joinCmd = [
       `agenthub channel:join`,
-      `  --agent  ${agentId.trim()}`,
       `  --channel ${channelId}`,
-      `  --alias  ${alias.trim()}`,
+      `  --alias  ${me}`,
       role.trim() ? `  --role   "${role.trim()}"` : null,
       group.trim() ? `  --group  ${group.trim()}` : null,
     ]
       .filter(Boolean)
       .join(" \\\n");
 
-    const registerCmd = workingDir.trim()
-      ? `agenthub agent:register --id ${agentId.trim()} --dir ${workingDir.trim()} --name "${role.trim() || agentId.trim()}"`
-      : `# agenthub agent:register --id ${agentId.trim()} --dir <your-repo-path> --name "${role.trim() || agentId.trim()}"`;
-
     const prompt = `\
-# Agent Identity
-- Agent ID:  ${agentId.trim()}
-- Channel:   ${channelId} — ${channelTopic}
-- Alias:     @${alias.trim()}
-${role.trim() ? `- Role:      ${role.trim()}\n` : ""}\
-${group.trim() ? `- Group:     ${group.trim()}\n` : ""}\
+# Your Identity
+- You are @${me} in channel ${channelId} — ${channelTopic}
+${role.trim() ? `- Role:  ${role.trim()}\n` : ""}\
+${group.trim() ? `- Group: ${group.trim()}\n` : ""}\
 ${workingDir.trim() ? `- Working directory: ${workingDir.trim()}\n` : ""}\
+Your alias @${me} is your identity — you use it for every command.
 
 # Startup — run once at the beginning of this session
-${registerCmd}
 ${joinCmd}
 
 # Work loop — repeat every iteration
-1. agenthub agent:heartbeat --id ${agentId.trim()} --status working
-2. agenthub inbox:poll --agent ${agentId.trim()}
+1. agenthub agent:heartbeat --as ${me} --status working
+2. agenthub inbox:poll --as ${me}
 3. Read the response — apply moderator context first (highest priority)
-4. Act on pending messages
-5. Send results:
+4. A message is FOR YOU when it @mentions ${`@${me}`}${group.trim() ? ` or @group:${group.trim()}` : ""},
+   or when it has no @mention (a channel-wide broadcast).
+5. Act on the pending messages
+6. Reply, addressing peers by @alias in the text:
    agenthub message:send \\
-     --from @${alias.trim()} \\
+     --as ${me} \\
      --channel ${channelId} \\
-     --to @<peer-alias> \\
-     --type result \\
-     --payload '{"key":"value"}'
-6. When waiting for a peer:
-   agenthub inbox:wait --agent ${agentId.trim()} --timeout 30
+     --payload "/result @<peer> the endpoint is ready"
+7. When waiting for a peer:
+   agenthub inbox:wait --as ${me} --timeout 30
    Then re-poll.
 
-# Addressing peers
-- Use @alias when addressing agents in this channel
-- Check channel_members in the inbox:poll response to see who is present
-- Sign messages naturally: "Hey @alice, here is my result…"
+# Addressing others
+- @alias targets a member · @group:<id> targets a group · no @mention = everyone
+- An optional leading /type sets the kind: /task /question /result /status …
+  (the slash must come first, e.g. "/result @alice done")
+- Check channel_members in inbox:poll to see who is present
+- Write naturally: "@alice the endpoint is ready, see the payload"
 
 # Priority order
 1. Moderator context (urgent) — pause current work, apply immediately
 2. Moderator context (normal) — apply before the next action
-3. Messages from the orchestrator
-4. Messages from peer agents
+3. Messages from peers
 ${
   extraContext.trim()
     ? `\n# Channel context\n${extraContext.trim()}\n`
@@ -138,15 +131,6 @@ ${
               <p className="text-xs text-gray-500 leading-relaxed">
                 Fill in the agent details and get a ready-to-paste CLAUDE.md prompt.
               </p>
-
-              <FormField label="Agent ID *" mono>
-                <input
-                  value={form.agentId}
-                  onChange={set("agentId")}
-                  placeholder="crm-backend"
-                  className={INPUT}
-                />
-              </FormField>
 
               <FormField label="Alias (without @) *" mono>
                 <input
@@ -196,7 +180,7 @@ ${
 
               <button
                 onClick={generate}
-                disabled={!form.agentId.trim() || !form.alias.trim()}
+                disabled={!form.alias.trim()}
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium py-1.5 rounded text-sm transition-colors"
               >
                 Generate Prompt
