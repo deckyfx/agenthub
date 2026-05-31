@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /**
@@ -43,7 +44,10 @@ export function Dialog({ open, onClose, title, icon, widthClass = "max-w-md", ch
 
   if (!open) return null;
 
-  return (
+  // Portal to <body> so the fixed overlay covers the full viewport regardless
+  // of where it's rendered. (A transformed ancestor — e.g. the sliding sidebar —
+  // would otherwise become the containing block and clamp the dialog to it.)
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4 sm:p-8"
       onMouseDown={onClose}
@@ -68,7 +72,8 @@ export function Dialog({ open, onClose, title, icon, widthClass = "max-w-md", ch
         </div>
         <div className="p-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
