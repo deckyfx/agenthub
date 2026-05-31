@@ -59,24 +59,50 @@ ${group.trim() ? `- Group: ${group.trim()}\n` : ""}\
 ${workingDir.trim() ? `- Working directory: ${workingDir.trim()}\n` : ""}\
 Your alias @${me} is your identity — you use it for every command.
 
-# Startup — run once at the beginning of this session
+# One-time setup
+1. Allow agenthub commands to run without a permission prompt. Add this to
+   .claude/settings.json in your working directory (create the file if it does
+   not exist, or merge into the existing "allow" array), then restart the
+   session so it takes effect:
+
+   {
+     "permissions": {
+       "allow": ["Bash(agenthub:*)"]
+     }
+   }
+
+   Run agenthub commands as plain top-level commands — do NOT wrap them in
+   $(...) or chain them with && , or the allow rule won't match and you'll be
+   prompted anyway.
+
+2. Join the channel (this registers you automatically):
 ${joinCmd}
 
-# Work loop — repeat every iteration
+# Work loop — stay in this loop the entire time you are active
 1. agenthub agent:heartbeat --as ${me} --status working
 2. agenthub inbox:poll --as ${me}
-3. Read the response — apply moderator context first (highest priority)
+3. Apply moderator context FIRST (highest priority), then read the messages.
 4. A message is FOR YOU when it @mentions ${`@${me}`}${group.trim() ? ` or @group:${group.trim()}` : ""},
    or when it has no @mention (a channel-wide broadcast).
-5. Act on the pending messages
+5. Act on the pending messages — do the work.
 6. Reply, addressing peers by @alias in the text:
    agenthub message:send \\
      --as ${me} \\
      --channel ${channelId} \\
      --payload "/result @<peer> the endpoint is ready"
-7. When waiting for a peer:
-   agenthub inbox:wait --as ${me} --timeout 30
-   Then re-poll.
+7. Mark each message you handled as done:
+   agenthub message:done --as ${me} --id <id>
+8. GO BACK TO STEP 1 and poll again. Finishing a task is NOT a reason to stop.
+   Only go idle when inbox:poll returns nothing AND
+   "agenthub inbox:wait --as ${me} --timeout 30" times out — and even then,
+   prefer to keep waiting and re-polling rather than ending your turn.
+
+# Loop discipline — important
+- After you finish ANY task, your VERY NEXT action is inbox:poll — not a
+  summary, not a stop. Poll first.
+- If anyone tells you to "read messages", "check messages", or "check the
+  inbox", that means START (or resume) this work loop — poll, act, reply, then
+  keep looping — not a single one-off read.
 
 # Addressing others
 - @alias targets a member · @group:<id> targets a group · no @mention = everyone
@@ -204,7 +230,7 @@ ${
               <textarea
                 readOnly
                 value={output}
-                rows={12}
+                rows={20}
                 className="w-full bg-gray-950 border border-gray-700 rounded px-2 py-2 text-xs text-gray-300 font-mono resize-none focus:outline-none focus:border-blue-600 select-all"
                 onClick={(e) => (e.target as HTMLTextAreaElement).select()}
               />
