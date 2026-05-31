@@ -4,8 +4,8 @@ import { Dialog, Field, TextArea, Select, Button, cn } from "../ui";
 import { useHub, selectMembers } from "../../lib/store";
 import type { ContextInjection } from "../../../../db/schema";
 
-/** Right panel: channel background & context, with an Add dialog. */
-export function ContextPanel({ channelId }: { channelId: string }) {
+/** Channel background & context, shown on demand in a dialog. */
+export function ContextDialog({ channelId, open, onClose }: { channelId: string; open: boolean; onClose: () => void }) {
   const allContexts = useHub((s) => s.contexts);
   const contexts = useMemo(
     () => allContexts.filter((c) => c.channel_id === channelId),
@@ -14,31 +14,25 @@ export function ContextPanel({ channelId }: { channelId: string }) {
   const [addOpen, setAddOpen] = useState(false);
 
   return (
-    <aside aria-label="Background and context" className="flex max-h-56 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 lg:max-h-none lg:w-72">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5">
-        <BookOpen size={15} className="text-zinc-400" />
-        <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Background &amp; Context</span>
-        <span className="text-xs text-zinc-600">{contexts.length}</span>
-      </div>
+    <Dialog open={open} onClose={onClose} title="Background & Context" icon={<BookOpen size={16} />} widthClass="max-w-lg">
+      <div className="space-y-3">
+        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          {contexts.length === 0 ? (
+            <p className="py-6 text-center text-xs text-zinc-600">
+              No context yet. Add background, constraints, or goals agents should know.
+            </p>
+          ) : (
+            contexts.map((ctx) => <ContextItem key={ctx.id} ctx={ctx} />)
+          )}
+        </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto p-3">
-        {contexts.length === 0 ? (
-          <p className="text-xs text-zinc-600">
-            No context yet. Add background, constraints, or goals agents should know.
-          </p>
-        ) : (
-          contexts.map((ctx) => <ContextItem key={ctx.id} ctx={ctx} />)
-        )}
-      </div>
-
-      <div className="border-t border-zinc-800 p-2">
         <Button variant="secondary" full icon={<Plus size={15} />} onClick={() => setAddOpen(true)}>
           Add context
         </Button>
       </div>
 
       <AddContextDialog channelId={channelId} open={addOpen} onClose={() => setAddOpen(false)} />
-    </aside>
+    </Dialog>
   );
 }
 

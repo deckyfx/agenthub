@@ -1,17 +1,24 @@
 import React, { useState } from "react";
-import { Users, UserPlus, X, FileText } from "lucide-react";
-import { Button, cn, senderStyle } from "../ui";
+import { Users, UserPlus, X } from "lucide-react";
+import { cn, senderStyle } from "../ui";
 import { useHub, selectMembers } from "../../lib/store";
 import { InviteDialog } from "./InviteDialog";
 import type { AgentChannel } from "../../../../db/schema";
 
-/** Left panel: the channel's member roster with avatars and an Invite action. */
+/**
+ * The active channel's member roster, rendered inside the app's left rail.
+ * Collapses to avatar-only on the desktop rail (via the `md:` breakpoint) and
+ * shows the full list in the mobile drawer / expanded rail.
+ */
 export function MembersPanel({
   channelId,
+  collapsed,
   onShowPrompt,
 }: {
   channelId: string;
-  /** Open a member's join prompt (owned by the parent so mentions can reuse it). */
+  /** Desktop rail collapsed state (mobile drawer always shows the full list). */
+  collapsed: boolean;
+  /** Open a member's join prompt (owned by the shell so mentions can reuse it). */
   onShowPrompt: (member: AgentChannel) => void;
 }) {
   const members = useHub(selectMembers(channelId));
@@ -19,16 +26,38 @@ export function MembersPanel({
   const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
-    <aside aria-label="Channel members" className="flex max-h-44 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 lg:max-h-none lg:w-60">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5">
-        <Users size={15} className="text-zinc-400" />
-        <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Members</span>
-        <span className="text-xs text-zinc-600">{members.length}</span>
+    <div>
+      <div className={cn("flex items-center gap-2 px-2 pb-1", collapsed && "md:justify-center md:px-0")}>
+        <Users size={14} className="shrink-0 text-zinc-500" />
+        <span className={cn("flex-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-600", collapsed && "md:hidden")}>
+          Members
+        </span>
+        <span className={cn("text-[10px] text-zinc-600", collapsed && "md:hidden")}>{members.length}</span>
+        <button
+          onClick={() => setInviteOpen(true)}
+          aria-label="Invite agent"
+          title="Invite agent"
+          className={cn("rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200", collapsed && "md:hidden")}
+        >
+          <UserPlus size={14} />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      {/* Collapsed-rail invite button (icon only) */}
+      {collapsed && (
+        <button
+          onClick={() => setInviteOpen(true)}
+          aria-label="Invite agent"
+          title="Invite agent"
+          className="mx-auto mb-1 hidden rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 md:block"
+        >
+          <UserPlus size={15} />
+        </button>
+      )}
+
+      <div className="space-y-0.5">
         {members.length === 0 ? (
-          <p className="px-1 py-2 text-xs text-zinc-600">No members yet. Invite an agent.</p>
+          <p className={cn("px-2 py-1 text-xs text-zinc-600", collapsed && "md:hidden")}>No members yet.</p>
         ) : (
           members.map((m) => {
             const style = senderStyle(m.alias);
@@ -39,26 +68,28 @@ export function MembersPanel({
               >
                 <button
                   onClick={() => onShowPrompt(m)}
-                  title="Show join prompt"
+                  title={`@${m.alias} — show join prompt`}
                   aria-label={`Show @${m.alias}'s join prompt`}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-1 text-left"
+                  className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 text-left", collapsed && "md:justify-center")}
                 >
                   <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", style.avatar)}>
                     {m.alias.charAt(0).toUpperCase()}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className={cn("truncate font-mono text-sm", style.text)}>@{m.alias}</p>
-                    {m.role_description && <p className="truncate text-xs text-zinc-600">{m.role_description}</p>}
+                  <div className={cn("min-w-0 flex-1", collapsed && "md:hidden")}>
+                    <p className={cn("truncate font-mono text-xs", style.text)}>@{m.alias}</p>
+                    {m.role_description && <p className="truncate text-[10px] text-zinc-600">{m.role_description}</p>}
                   </div>
-                  <FileText size={13} className="shrink-0 text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
                 </button>
                 <button
                   onClick={() => removeMember(channelId, m.agent_id)}
                   aria-label={`Remove @${m.alias} from channel`}
                   title="Remove"
-                  className="shrink-0 rounded p-1 text-zinc-600 opacity-0 transition-opacity hover:text-rose-400 focus:opacity-100 group-hover:opacity-100"
+                  className={cn(
+                    "shrink-0 rounded p-1 text-zinc-600 opacity-0 transition-opacity hover:text-rose-400 focus:opacity-100 group-hover:opacity-100",
+                    collapsed && "md:hidden",
+                  )}
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               </div>
             );
@@ -66,17 +97,11 @@ export function MembersPanel({
         )}
       </div>
 
-      <div className="border-t border-zinc-800 p-2">
-        <Button full icon={<UserPlus size={15} />} onClick={() => setInviteOpen(true)}>
-          Invite
-        </Button>
-      </div>
-
       <InviteDialog
         channelId={channelId}
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
       />
-    </aside>
+    </div>
   );
 }

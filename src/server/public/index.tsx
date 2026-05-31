@@ -5,7 +5,10 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { ChannelPage } from "./pages/ChannelPage";
 import { cn } from "./components/ui";
 import { ThemeSwitcher } from "./components/ThemeSwitcher";
+import { MembersPanel } from "./components/channel/MembersPanel";
+import { AgentPromptDialog } from "./components/channel/AgentPromptDialog";
 import { useHub } from "./lib/store";
+import type { AgentChannel } from "../../db/schema";
 
 type Page = { view: "overview" } | { view: "channel"; id: string };
 
@@ -18,6 +21,9 @@ function App() {
     () => localStorage.getItem("agenthub:sidebar") === "collapsed",
   );
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // The member whose join prompt is shown. Owned here so both the rail roster
+  // and message @mentions can open the same dialog.
+  const [promptFor, setPromptFor] = useState<AgentChannel | null>(null);
 
   function toggle() {
     setCollapsed((v) => {
@@ -58,7 +64,6 @@ function App() {
         <div className={cn("flex items-center gap-2 border-b border-zinc-800 px-3 py-3.5", collapsed && "md:justify-center md:px-0")}>
           <Boxes size={20} className="shrink-0 text-indigo-400" />
           <span className={cn("flex-1 text-sm font-bold", collapsed && "md:hidden")}>AgentHub</span>
-          {/* Desktop collapse toggle */}
           {!collapsed && (
             <button
               onClick={toggle}
@@ -69,7 +74,6 @@ function App() {
               <PanelLeftClose size={16} />
             </button>
           )}
-          {/* Mobile close button */}
           <button
             onClick={() => setMobileNavOpen(false)}
             className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 md:hidden"
@@ -90,34 +94,44 @@ function App() {
           </button>
         )}
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Channels">
-          <NavItem
-            icon={<LayoutGrid size={16} />}
-            label="Overview"
-            collapsed={collapsed}
-            active={page.view === "overview"}
-            onClick={() => navTo({ view: "overview" })}
-          />
-
-          {channels.length > 0 && (
-            <p className={cn("px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600", collapsed && "md:hidden")}>
-              Channels
-            </p>
-          )}
-          {channels.length > 0 && collapsed && <div className="my-2 hidden border-t border-zinc-800 md:block" />}
-
-          {channels.map((ch) => (
+        {/* Middle: channel nav + (when a channel is open) its member roster.
+            Each region scrolls independently so they can share the rail. */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2" aria-label="Channels">
             <NavItem
-              key={ch.id}
-              icon={<Hash size={16} />}
-              label={ch.id}
-              mono
+              icon={<LayoutGrid size={16} />}
+              label="Overview"
               collapsed={collapsed}
-              active={activeChannel === ch.id}
-              onClick={() => navTo({ view: "channel", id: ch.id })}
+              active={page.view === "overview"}
+              onClick={() => navTo({ view: "overview" })}
             />
-          ))}
-        </nav>
+
+            {channels.length > 0 && (
+              <p className={cn("px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600", collapsed && "md:hidden")}>
+                Channels
+              </p>
+            )}
+            {channels.length > 0 && collapsed && <div className="my-2 hidden border-t border-zinc-800 md:block" />}
+
+            {channels.map((ch) => (
+              <NavItem
+                key={ch.id}
+                icon={<Hash size={16} />}
+                label={ch.id}
+                mono
+                collapsed={collapsed}
+                active={activeChannel === ch.id}
+                onClick={() => navTo({ view: "channel", id: ch.id })}
+              />
+            ))}
+          </nav>
+
+          {activeChannel && (
+            <div className="min-h-0 flex-1 overflow-y-auto border-t border-zinc-800 p-2">
+              <MembersPanel channelId={activeChannel} collapsed={collapsed} onShowPrompt={setPromptFor} />
+            </div>
+          )}
+        </div>
 
         <div className="border-t border-zinc-800 p-2">
           <ThemeSwitcher collapsed={collapsed} />
@@ -144,10 +158,17 @@ function App() {
             <OverviewPage onSelectChannel={(id) => navTo({ view: "channel", id })} />
           )}
           {page.view === "channel" && (
-            <ChannelPage channelId={page.id} onBack={() => navTo({ view: "overview" })} />
+            <ChannelPage channelId={page.id} onBack={() => navTo({ view: "overview" })} onShowPrompt={setPromptFor} />
           )}
         </main>
       </div>
+
+      {/* Join-prompt dialog (shared by the rail roster and message mentions) */}
+      <AgentPromptDialog
+        channelId={promptFor?.channel_id ?? ""}
+        member={promptFor}
+        onClose={() => setPromptFor(null)}
+      />
     </div>
   );
 }
