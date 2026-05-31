@@ -1,106 +1,119 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
-import { api } from "./lib/api";
+import { Boxes, LayoutGrid, Hash, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ChannelPage } from "./pages/ChannelPage";
-import { AgentPage } from "./pages/AgentPage";
-import type { Channel } from "../../db/schema";
+import { cn } from "./components/ui";
+import { useHub } from "./lib/store";
 
-type Page =
-  | { view: "overview" }
-  | { view: "channel"; id: string }
-  | { view: "agent"; id: string };
+type Page = { view: "overview" } | { view: "channel"; id: string };
 
 function App() {
   const [page, setPage] = useState<Page>({ view: "overview" });
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [agents, setAgents] = useState<Array<{ id: string; status: string }>>([]);
+  const channels = useHub((s) => s.channels);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("agenthub:sidebar") === "collapsed",
+  );
 
-  useEffect(() => {
-    async function fetchNav() {
-      const [chRes, agRes] = await Promise.all([
-        api.api.channels.get(),
-        api.api.agents.get(),
-      ]);
-      if (chRes.data?.channels) setChannels(chRes.data.channels);
-      if (agRes.data?.agents) setAgents(agRes.data.agents);
-    }
-    fetchNav();
-    const interval = setInterval(fetchNav, 3000);
-    return () => clearInterval(interval);
-  }, []);
+  function toggle() {
+    setCollapsed((v) => {
+      localStorage.setItem("agenthub:sidebar", v ? "expanded" : "collapsed");
+      return !v;
+    });
+  }
+
+  const activeChannel = page.view === "channel" ? page.id : null;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-52 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0">
-        <div className="p-4 border-b border-gray-800">
-          <p className="font-bold text-white text-sm">🤖 AgentHub</p>
+    <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+      {/* ── Sidebar ── */}
+      <aside
+        className={cn(
+          "flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-900 transition-[width] duration-200",
+          collapsed ? "w-14" : "w-56",
+        )}
+      >
+        <div className={cn("flex items-center gap-2 border-b border-zinc-800 px-3 py-3.5", collapsed && "justify-center px-0")}>
+          <Boxes size={20} className="shrink-0 text-indigo-400" />
+          {!collapsed && <span className="flex-1 text-sm font-bold">AgentHub</span>}
+          {!collapsed && (
+            <button onClick={toggle} className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" title="Collapse">
+              <PanelLeftClose size={16} />
+            </button>
+          )}
         </div>
-        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5 text-sm">
-          <NavItem active={page.view === "overview"} onClick={() => setPage({ view: "overview" })}>Overview</NavItem>
 
-          {channels.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs text-gray-600 px-2 mb-1 uppercase tracking-wide">Channels</p>
-              {channels.map((ch) => (
-                <NavItem
-                  key={ch.id}
-                  active={page.view === "channel" && (page as { view: "channel"; id: string }).id === ch.id}
-                  onClick={() => setPage({ view: "channel", id: ch.id })}
-                >
-                  <span className="font-mono">{ch.id}</span>
-                </NavItem>
-              ))}
-            </div>
-          )}
+        {collapsed && (
+          <button onClick={toggle} className="mx-auto mt-2 rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" title="Expand">
+            <PanelLeftOpen size={16} />
+          </button>
+        )}
 
-          {agents.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs text-gray-600 px-2 mb-1 uppercase tracking-wide">Agents</p>
-              {agents.map((a) => (
-                <NavItem
-                  key={a.id}
-                  active={page.view === "agent" && (page as { view: "agent"; id: string }).id === a.id}
-                  onClick={() => setPage({ view: "agent", id: a.id })}
-                >
-                  <span className="font-mono text-xs">{a.id}</span>
-                </NavItem>
-              ))}
-            </div>
+        <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
+          <NavItem
+            icon={<LayoutGrid size={16} />}
+            label="Overview"
+            collapsed={collapsed}
+            active={page.view === "overview"}
+            onClick={() => setPage({ view: "overview" })}
+          />
+
+          {channels.length > 0 && !collapsed && (
+            <p className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+              Channels
+            </p>
           )}
+          {channels.length > 0 && collapsed && <div className="my-2 border-t border-zinc-800" />}
+
+          {channels.map((ch) => (
+            <NavItem
+              key={ch.id}
+              icon={<Hash size={16} />}
+              label={ch.id}
+              mono
+              collapsed={collapsed}
+              active={activeChannel === ch.id}
+              onClick={() => setPage({ view: "channel", id: ch.id })}
+            />
+          ))}
         </nav>
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 overflow-y-auto p-6">
-        {page.view === "overview" && <OverviewPage onSelectChannel={(id) => setPage({ view: "channel", id })} />}
-        {page.view === "channel" && (
-          <ChannelPage
-            channelId={(page as { view: "channel"; id: string }).id}
-            onBack={() => setPage({ view: "overview" })}
-          />
+      {/* ── Main ── */}
+      <main className="flex-1 overflow-hidden p-6">
+        {page.view === "overview" && (
+          <OverviewPage onSelectChannel={(id) => setPage({ view: "channel", id })} />
         )}
-        {page.view === "agent" && (
-          <AgentPage
-            agentId={(page as { view: "agent"; id: string }).id}
-            onBack={() => setPage({ view: "overview" })}
-          />
+        {page.view === "channel" && (
+          <ChannelPage channelId={page.id} onBack={() => setPage({ view: "overview" })} />
         )}
       </main>
     </div>
   );
 }
 
-function NavItem({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function NavItem({
+  icon, label, active, onClick, collapsed, mono,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  collapsed: boolean;
+  mono?: boolean;
+}) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-2 py-1.5 rounded transition-colors ${
-        active ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white hover:bg-gray-800"
-      }`}
+      title={collapsed ? label : undefined}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+        collapsed && "justify-center px-0",
+        active ? "bg-indigo-600/15 text-indigo-300" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100",
+      )}
     >
-      {children}
+      <span className="shrink-0">{icon}</span>
+      {!collapsed && <span className={cn("flex-1 truncate text-left", mono && "font-mono text-xs")}>{label}</span>}
     </button>
   );
 }

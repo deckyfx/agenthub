@@ -25,8 +25,10 @@
     "@elysiajs/server-timing": "^1.4.0",
     "drizzle-orm": "^0.44.7",
     "elysia": "^1.4.22",
+    "lucide-react": "^1.17.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@types/bun": "latest",
