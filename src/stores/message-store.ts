@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import { messages, agentChannels } from "../db/schema";
 import type { Message, NewMessage } from "../db/schema";
@@ -69,6 +69,34 @@ export class MessageStore {
       .update(messages)
       .set({ status: "done", done_at: Math.floor(Date.now() / 1000) })
       .where(eq(messages.id, id));
+  }
+
+  /**
+   * Acknowledge the messages an observer (the dashboard "moderator") sees in a
+   * channel feed, flipping them `pending` → `read`.
+   *
+   * The moderator never runs `inbox:poll`, so messages addressed to it — and
+   * broadcast/feed rows with no concrete recipient (`to_alias IS NULL`) — would
+   * otherwise stay `pending` forever. Messages addressed to a real agent are left
+   * untouched so that agent still picks them up via its own poll.
+   *
+   * @param channelId - Channel being viewed.
+   * @param observer - The observer alias (the dashboard sender, e.g. "moderator").
+   */
+  static async markChannelReadForObserver(
+    channelId: string,
+    observer: string,
+  ): Promise<void> {
+    await db
+      .update(messages)
+      .set({ status: "read", read_at: Math.floor(Date.now() / 1000) })
+      .where(
+        and(
+          eq(messages.channel_id, channelId),
+          eq(messages.status, "pending"),
+          or(eq(messages.to_alias, observer), isNull(messages.to_alias)),
+        ),
+      );
   }
 
   /** Get every message in a channel (dashboard feed). */

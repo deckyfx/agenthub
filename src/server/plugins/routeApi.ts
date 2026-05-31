@@ -108,6 +108,10 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
   })
 
   .get("/channels/:id/messages", async ({ params }) => {
+    // Loading the feed is the moderator "reading" the channel: acknowledge
+    // messages addressed to it (and undelivered broadcast rows) so they don't
+    // sit at "pending" forever — the dashboard sends as "moderator".
+    await MessageStore.markChannelReadForObserver(params.id, "moderator");
     const messages = await MessageStore.findByChannel(params.id);
     return { ok: true, messages };
   })

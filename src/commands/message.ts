@@ -40,8 +40,18 @@ export async function sendMessage(opts: SendMessageOptions): Promise<Message[]> 
   const parsed = parseBody(opts.body);
   const type: MessageType = opts.type ?? parsed.type;
 
-  const tokens = opts.to ? [stripAt(opts.to.trim())] : parsed.recipients;
-  const recipients = await resolveRecipients(opts.channelId, fromAlias, tokens);
+  // An explicit `--to` is trusted (it may address an agent who has not joined
+  // yet). Mentions parsed from the body are NOT trusted: only those resolving to
+  // a real channel member or group become recipients, so stray @tokens in prose
+  // (e.g. writing "@mention parsing" in a sentence) can't fan out phantom rows.
+  const explicit = opts.to ? stripAt(opts.to.trim()) : null;
+  const tokens = explicit ? [explicit] : parsed.recipients;
+  const recipients = await resolveRecipients(
+    opts.channelId,
+    fromAlias,
+    tokens,
+    explicit !== null,
+  );
 
   const base = {
     channel_id: opts.channelId,
@@ -70,20 +80,26 @@ export async function sendMessage(opts: SendMessageOptions): Promise<Message[]> 
  * should each receive a copy.
  *
  *   - no token         → every channel member except the sender (broadcast)
- *   - "<alias>"        → that alias (deliver even if not yet a member)
+ *   - "<alias>"        → that alias (trusted: delivered even if not a member;
+ *                        untrusted: only when it is a real channel member)
  *   - "group:<name>"   → group members who are also in this channel
  *
  * @param channelId - Channel the message belongs to.
  * @param fromAlias - Sender alias (excluded from broadcasts).
  * @param tokens - Recipient tokens parsed from the body, or an explicit override.
+ * @param trusted - Whether the tokens came from an explicit `--to` override. When
+ *   false (mentions parsed from prose), unknown plain aliases are dropped so that
+ *   incidental @tokens in natural text don't create phantom recipients.
  */
 async function resolveRecipients(
   channelId: string,
   fromAlias: string,
   tokens: string[],
+  trusted: boolean,
 ): Promise<string[]> {
   const members = await ChannelStore.getMembers(channelId);
   const memberAliases = members.map((m) => m.alias);
+  const memberSet = new Set(memberAliases);
   // agent_id → channel alias (handles the rare case where they differ).
   const aliasByAgentId = new Map(members.map((m) => [m.agent_id, m.alias]));
 
@@ -96,12 +112,15 @@ async function resolveRecipients(
   for (const token of tokens) {
     if (token.startsWith("group:")) {
       const groupId = token.slice("group:".length);
+      // A bare "group:" with no id (e.g. the prose "@group: foo") is not a real
+      // target — skip it rather than expanding an empty group.
+      if (!groupId) continue;
       const memberIds = await GroupStore.getMemberIds(groupId);
       for (const agentId of memberIds) {
         const alias = aliasByAgentId.get(agentId);
         if (alias && alias !== fromAlias) out.add(alias);
       }
-    } else if (token !== fromAlias) {
+    } else if (token !== fromAlias && (trusted || memberSet.has(token))) {
       out.add(token);
     }
   }
