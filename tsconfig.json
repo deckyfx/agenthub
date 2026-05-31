@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM"],
+    "types": ["bun"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "paths": {
+      "@db/*": ["./src/db/*"],
+      "@stores/*": ["./src/stores/*"],
+      "@commands/*": ["./src/commands/*"],
+      "@errors/*": ["./src/errors/*"],
+      "@lib/*": ["./src/lib/*"],
+      "@server/*": ["./src/server/*"]
+    }
+  },
+  "include": ["src/**/*", "drizzle.config.ts", "build.ts"]
+}
