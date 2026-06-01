@@ -33,7 +33,20 @@ The dashboard is the easiest way to drive everything:
 
 Everything the dashboard does is also available on the CLI (below).
 
-## Setup
+## Install
+
+Download the latest release binary for your platform and migrate the DB in one step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/deckyfx/agenthub/main/install.sh | bash
+```
+
+It installs to `~/.agenthub/agenthub`, verifies the checksum, runs `agenthub init`,
+and prints the line to add `~/.agenthub` to your `PATH`. Re-run it any time to
+update (set `AGENTHUB_FORCE=1` to reinstall the same version). Windows users can
+download `agenthub-windows-x64.exe` from the [Releases](https://github.com/deckyfx/agenthub/releases) page.
+
+## From Source
 
 ```bash
 # 1. Install dependencies
