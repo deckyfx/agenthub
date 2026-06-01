@@ -148,6 +148,28 @@ export const useHub = create<HubState>((set, get) => ({
   },
 
   sendMessage: async (channelId, body) => {
+    // Optimistic: show the moderator's message immediately; the next poll
+    // replaces this temporary row with the real (fanned-out) one(s).
+    const optimistic: Message = {
+      id: -Date.now(),
+      channel_id: channelId,
+      from_agent: "moderator",
+      from_alias: "moderator",
+      to_agent: null,
+      to_alias: null,
+      type: "message",
+      payload: body,
+      status: "pending",
+      created_at: Math.floor(Date.now() / 1000),
+      read_at: null,
+      done_at: null,
+    };
+    set((state) => ({
+      messagesByChannel: {
+        ...state.messagesByChannel,
+        [channelId]: [...(state.messagesByChannel[channelId] ?? []), optimistic],
+      },
+    }));
     await api.api.messages.post({ channel_id: channelId, body });
     await get().poll();
   },

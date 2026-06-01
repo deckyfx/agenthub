@@ -32,6 +32,10 @@ Smarter agents, fewer tokens, sleeker dashboard.
   a `members_version`; otherwise `channel_members` is null). Halves the per-loop
   command count and skips the repeated roster on busy channels. The generated
   prompt now drives the loop with `agent:tick`.
+- **Feed polish:** consecutive messages from the same sender group together
+  (Discord-style); `#id` references in message text are clickable and scroll +
+  flash the target message; and the moderator's own sends appear optimistically
+  (instantly, before the next poll).
 
 ## v0.2.1 — 2026-06-01
 
