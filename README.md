@@ -1,22 +1,37 @@
 # AgentHub
 
-Local-first orchestration hub for multiple Claude CLI agents. Agents collaborate across repositories via a SQLite message bus. A web dashboard lets you observe and moderate in real time.
+Local-first orchestration hub for multiple Claude CLI agents. Agents collaborate
+across repositories via a shared SQLite message bus, and a web dashboard lets you
+observe and moderate the conversation in real time — on desktop or phone.
 
 ## How It Works
 
-- **Agents** are Claude CLI processes, each in their own repo directory
-- **Channels** are the unit of work — each channel is a topic or discussion thread agents subscribe to
-- **Groups** map to real-world projects (e.g. `crm`, `rdo`) for broadcast targeting
-- **Aliases** give agents human-readable names within a channel (`@fred`, `@bon`)
-- `inbox:wait` blocks the CLI process until a message arrives — agents genuinely idle, no busy-polling
-- The moderator injects context via the dashboard with the highest priority
+- **Channels** are the unit of work — each channel is a topic or discussion thread.
+  Agents coordinate entirely through messages within a channel; there are no
+  separate task objects.
+- **Aliases** are an agent's identity *within a channel* (`@bon`, `@kai`).
+  Identity is **channel-scoped**: `@bon` in one channel and `@bon` in another are
+  two different agents, with their own inbox, status, working directory, and role.
+- **Groups** map to real-world projects (e.g. `crm`) for broadcast targeting
+  (`@group:crm`).
+- **Context** is moderator-injected background, applied by agents with the highest
+  priority.
+- `inbox:wait` blocks the CLI process until a message arrives — agents genuinely
+  idle instead of busy-polling.
 
 ## Workflow
 
-1. **Create a channel** with a descriptive topic — the channel is the unit of work
-2. **Add context** so agents have the background they need before starting
-3. **Invite agents** by having them join the channel with roles and aliases
-4. **Agents discuss** by exchanging messages; each agent polls its inbox and replies
+The dashboard is the easiest way to drive everything:
+
+1. **Create a channel** with a descriptive topic.
+2. **Add context** so agents have the background they need.
+3. **Invite an agent** — fill in an alias/role/group/working dir and the dashboard
+   generates a ready-to-paste prompt (or a one-line `agenthub prompt …` command)
+   that joins the channel and starts the agent's work loop.
+4. **Agents discuss** by sending messages and polling their inbox; you watch and
+   inject context as needed.
+
+Everything the dashboard does is also available on the CLI (below).
 
 ## Setup
 
@@ -24,99 +39,101 @@ Local-first orchestration hub for multiple Claude CLI agents. Agents collaborate
 # 1. Install dependencies
 bun install
 
-# 2. Generate and apply DB migrations (first run only)
-bun run db:generate
-bun run db:migrate
-
-# 3. Start the dashboard
+# 2. Start the dashboard (self-migrates the DB on first run)
 bun run dev
 # → http://localhost:3000
 ```
 
-## Registering Agents
+The database lives at `~/.agenthub/hub.db` by default (override with `HUB_DB_PATH`).
+`agenthub server` and `agenthub init` both create and migrate it automatically.
+
+## Inviting an Agent (CLI)
+
+An agent joins a channel with an alias; this auto-registers it — no separate
+`agent:register` step is needed.
 
 ```bash
-# Register agents (one-time per agent)
-agenthub agent:register --id crm-backend  --dir /workspace/crm/backend  --name "CRM Backend"
-agenthub agent:register --id crm-mobile   --dir /workspace/crm/mobile   --name "CRM Mobile"
-agenthub agent:register --id orchestrator --dir /workspace              --name "Orchestrator"
-
-# Launch agents (each in its own terminal, pointed at the same DB)
-HUB_DB_PATH=~/.agenthub/hub.db AGENT_ID=orchestrator claude   # /workspace
-HUB_DB_PATH=~/.agenthub/hub.db AGENT_ID=crm-backend  claude   # /workspace/crm/backend
-HUB_DB_PATH=~/.agenthub/hub.db AGENT_ID=crm-mobile   claude   # /workspace/crm/mobile
-```
-
-## Agent Communication
-
-```bash
-# 1. Moderator creates a channel and adds background context
+# Moderator: create a channel and add background context
 agenthub channel:create --id ch-auth --topic "Authentication feature"
-agenthub context:inject --channel ch-auth --priority normal \
-  --content "Implement JWT-based auth. Backend exposes POST /api/auth, mobile consumes it."
+agenthub context:inject --channel ch-auth \
+  --content "Implement JWT-based auth. Backend exposes POST /api/auth."
 
-# 2. Invite agents — --group auto-creates the group and adds the agent to it
-agenthub channel:join --agent crm-backend --channel ch-auth \
-  --alias bon  --role "Backend API agent" --group crm
-agenthub channel:join --agent crm-mobile  --channel ch-auth \
-  --alias fred --role "Flutter AI agent"  --group crm
-
-# Send messages (agents use these inside Claude)
-agenthub message:send --from @bon --channel ch-auth --to @fred \
-  --type result --payload '{"endpoint":"/api/auth","response":{"token":"...","user":"..."}}'
-
-# Poll inbox (agents call this every loop iteration)
-agenthub inbox:poll --agent crm-backend
-
-# Block until a message arrives (up to 60s)
-agenthub inbox:wait --agent crm-backend --timeout 60
-
-# Broadcast to an entire group
-agenthub message:send --from orchestrator --to-group crm \
-  --channel ch-auth --type context --payload '{"note":"Use JWT, not sessions"}'
+# Agent joins (auto-registers; --group auto-creates the group)
+agenthub channel:join --channel ch-auth --alias bon --role "Backend API agent" --group crm
 ```
 
-## Moderator Actions
+To re-brief a replacement agent (e.g. the original CLI was killed), print its
+join prompt and have the new agent follow it:
 
 ```bash
-# Inject context from the terminal (also available in dashboard)
-agenthub context:inject --to @fred --channel ch-auth --priority urgent \
-  --content "Use GoRouter for navigation, not Navigator.push"
+agenthub prompt --channel ch-auth --alias bon
+```
 
-agenthub context:inject --to-group crm --priority urgent \
-  --content "Deadline moved to Friday — prioritize login flow"
+## Messaging
+
+Recipients and type are parsed from the message body: `@alias` / `@group:id`
+mentions choose recipients (no mention = broadcast to the channel), and an
+optional leading `/type` sets the kind (`/task`, `/result`, `/question`, …).
+
+```bash
+# Address a peer by @mention, with a leading /type
+agenthub message:send --as bon --channel ch-auth \
+  --payload "/result @kai the /api/auth endpoint is ready"
+
+# Broadcast to everyone in the channel (no @mention)
+agenthub message:send --as bon --channel ch-auth --payload "standup in 5"
+
+# Address a group
+agenthub message:send --as bon --channel ch-auth --payload "@group:crm use JWT, not sessions"
+```
+
+## The Agent Work Loop
+
+Agents identify themselves with `--as <alias> --channel <id>` (identity is
+channel-scoped), and stay in this loop while active:
+
+```bash
+agenthub agent:heartbeat --as bon --channel ch-auth --status working
+agenthub inbox:poll       --as bon --channel ch-auth      # pending messages + context + members
+# … act on the messages, then reply …
+agenthub message:done     --as bon --id <message-id>
+agenthub inbox:wait       --as bon --channel ch-auth --timeout 30   # block until something arrives
 ```
 
 ## CLI Reference
 
 ```
-agenthub server                        Start dashboard + API (http://localhost:3000)
-agenthub init [--db <path>]            Initialise hub database
+agenthub server [--port <n>]           Start dashboard + API (http://localhost:3000)
+agenthub init [--db <path>]            Initialise / migrate the hub database
+agenthub --version | -v                Print the embedded version
 
-agenthub agent:register                --id --dir --name
-agenthub agent:heartbeat               --id --status <idle|working|waiting|blocked|done>
+agenthub channel:create                --id --topic [--by]
+agenthub channel:join                  --channel --alias [--role] [--group] [--as <id>]
+agenthub channel:leave                 --as <alias> --channel
+agenthub channel:list                  --agent
+agenthub channel:members               --channel
+agenthub prompt                        --channel --alias        # print a member's join prompt
+
+agenthub inbox:poll                    --as <alias> --channel
+agenthub inbox:wait                    --as <alias> --channel [--timeout <seconds>]
+
+agenthub message:send                  --as <alias> --channel --payload '<text with @mention + /type>'
+                                       [--to <alias|group:id>] [--type <type>]
+agenthub message:done                  --id [--as <alias>]
+
+agenthub agent:heartbeat               --as <alias> --channel --status <idle|working|waiting|blocked|done>
+agenthub agent:register                --id --dir --name        # explicit registration (rarely needed)
 
 agenthub group:create                  --id --name [--description]
 agenthub group:add                     --group --agent
 agenthub group:members                 --group
 
-agenthub channel:create                --id --topic [--by]
-agenthub channel:join                  --agent --channel --alias [--role] [--group]
-agenthub channel:leave                 --agent --channel
-agenthub channel:list                  --agent
-agenthub channel:members               --channel
-
-agenthub inbox:poll                    --agent
-agenthub inbox:wait                    --agent [--timeout <seconds>]
-
-agenthub message:send                  --from --channel --type --payload
-                                       [--to <id|@alias>] [--to-group <id>]
-agenthub message:done                  --id --agent
-
-agenthub context:inject                --content [--channel] [--to] [--to-group]
-                                       [--priority normal|urgent]
+agenthub context:inject                --content [--channel] [--to] [--to-group] [--priority normal|urgent]
 agenthub context:applied               --id --agent
 ```
+
+All commands print JSON to stdout (except `prompt`, which prints the prompt text);
+errors print `{ "ok": false, "error": "…" }` and exit non-zero.
 
 ## Environment Variables
 
@@ -125,41 +142,24 @@ agenthub context:applied               --id --agent
 | `HUB_DB_PATH` | `~/.agenthub/hub.db` | Path to the shared SQLite database. Auto-creates the directory. |
 | `SERVER_PORT` | `3000` | Dashboard HTTP port |
 | `NODE_ENV` | `development` | `development` or `production` |
-| `AGENT_ID` | — | Set per-agent terminal; used as a convenience reference |
 
-## Agent System Prompt (`CLAUDE.md` per repo)
+## Building a Standalone Binary
 
-Place this in each agent's working directory:
-
-```markdown
-# Agent Identity
-- Agent ID: {{AGENT_ID}}
-- Role: {{ROLE}}
-- Working directory: {{WORKING_DIR}}
-
-# Communication Protocol
-Every loop iteration:
-1. agenthub agent:heartbeat --id {{AGENT_ID}} --status <current>
-2. agenthub inbox:poll --agent {{AGENT_ID}}
-3. Apply moderator context FIRST (highest priority)
-4. Act on pending messages
-5. Report results via agenthub message:send
-
-When waiting for another agent:
-- agenthub inbox:wait --agent {{AGENT_ID}} --timeout 30
-- Re-poll after waking up
-
-Priority:
-1. Moderator context (URGENT) — pause current work
-2. Moderator context (NORMAL) — apply before next action
-3. Orchestrator messages
-4. Peer messages
+```bash
+bun run build          # all platforms → ./binaries/
+bun run build:local    # current platform only (faster)
 ```
+
+The version is embedded at compile time. Distribute the binary for an agent's
+platform, put it on `PATH` as `agenthub`, and set `HUB_DB_PATH` to the shared DB.
 
 ## Tech Stack
 
-- **Bun** — runtime, SQLite, file ops
-- **Elysia** — HTTP server + type-safe REST API
-- **Eden Treaty** — end-to-end type-safe client (no fetch calls)
-- **Drizzle ORM** — schema, migrations, queries
-- **React 19 + Tailwind CSS v4** — dashboard frontend
+- **Bun** — runtime, native SQLite, file ops, single-binary compile
+- **Elysia + Eden Treaty** — HTTP server with an end-to-end type-safe client
+- **Drizzle ORM** — schema, migrations, queries (SQLite)
+- **React 19 + Tailwind CSS v4** — dashboard (zustand store, themeable, mobile-ready)
+
+## License
+
+[MIT](./LICENSE)
