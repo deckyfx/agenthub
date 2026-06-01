@@ -64,6 +64,15 @@ export function renderMentions(
       );
     }
 
+    // @all is a broadcast to every member — distinct, not a clickable member.
+    if (seg.name === "all") {
+      return (
+        <span key={i} className="rounded bg-amber-500/15 px-1 font-medium text-amber-300">
+          {seg.raw}
+        </span>
+      );
+    }
+
     const clickable = Boolean(onAliasClick);
     return (
       <span

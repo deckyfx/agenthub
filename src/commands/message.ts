@@ -110,7 +110,10 @@ async function resolveRecipients(
 
   const out = new Set<string>();
   for (const token of tokens) {
-    if (token.startsWith("group:")) {
+    if (token === "all") {
+      // @all → every channel member except the sender (an explicit broadcast).
+      for (const a of memberAliases) if (a !== fromAlias) out.add(a);
+    } else if (token.startsWith("group:")) {
       const groupId = token.slice("group:".length);
       // A bare "group:" with no id (e.g. the prose "@group: foo") is not a real
       // target — skip it rather than expanding an empty group.

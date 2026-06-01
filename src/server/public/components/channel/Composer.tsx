@@ -26,7 +26,8 @@ export function Composer({ channelId }: { channelId: string }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
 
-  const validAlias = useMemo(() => new Set(members.map((m) => m.alias)), [members]);
+  // "all" is a virtual recipient meaning every member (an explicit broadcast).
+  const validAlias = useMemo(() => new Set(["all", ...members.map((m) => m.alias)]), [members]);
   const validGroup = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
 
   async function send() {
@@ -60,18 +61,21 @@ export function Composer({ channelId }: { channelId: string }) {
   }
 
   const q = (mentionQuery ?? "").toLowerCase();
-  const memberSuggestions = members.filter((m) => m.alias.toLowerCase().startsWith(q));
+  const aliasSuggestions = [
+    { id: "__all__", alias: "all", role: "everyone in the channel" as string | null },
+    ...members.map((m) => ({ id: m.agent_id, alias: m.alias, role: m.role_description ?? null })),
+  ].filter((s) => s.alias.toLowerCase().startsWith(q));
   const groupSuggestions = groups.filter(
     (g) => g.id.toLowerCase().startsWith(q) || `group:${g.id}`.toLowerCase().startsWith(q.replace(/^group:/, "")),
   );
-  const showDropdown = mentionQuery !== null && (memberSuggestions.length > 0 || groupSuggestions.length > 0);
+  const showDropdown = mentionQuery !== null && (aliasSuggestions.length > 0 || groupSuggestions.length > 0);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Escape") { setMentionQuery(null); return; }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (showDropdown) {
-        const first = memberSuggestions[0]?.alias ?? (groupSuggestions[0] ? `group:${groupSuggestions[0].id}` : null);
+        const first = aliasSuggestions[0]?.alias ?? (groupSuggestions[0] ? `group:${groupSuggestions[0].id}` : null);
         if (first) { insertMention(first); return; }
       }
       send();
@@ -83,16 +87,16 @@ export function Composer({ channelId }: { channelId: string }) {
       <div className="relative">
         {showDropdown && (
           <div className="absolute bottom-full left-0 z-20 mb-1 max-h-44 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-800 shadow-xl">
-            {memberSuggestions.map((m) => (
+            {aliasSuggestions.map((s) => (
               <button
-                key={m.agent_id}
+                key={s.id}
                 type="button"
-                onMouseDown={(e) => { e.preventDefault(); insertMention(m.alias); }}
+                onMouseDown={(e) => { e.preventDefault(); insertMention(s.alias); }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-700"
               >
                 <AtSign size={13} className="text-indigo-400" />
-                <span className="font-mono text-indigo-300">{m.alias}</span>
-                {m.role_description && <span className="ml-auto truncate text-xs text-zinc-500">{m.role_description}</span>}
+                <span className="font-mono text-indigo-300">{s.alias}</span>
+                {s.role && <span className="ml-auto truncate text-xs text-zinc-500">{s.role}</span>}
               </button>
             ))}
             {groupSuggestions.map((g) => (
