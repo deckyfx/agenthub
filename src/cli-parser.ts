@@ -38,6 +38,7 @@ export type CliResult =
     }
   | { type: "context:applied"; id: number; agent: string }
   | { type: "help" }
+  | { type: "version" }
   | { type: "error"; message: string };
 
 // ─── Argument Parser ──────────────────────────────────────────────────────────
@@ -49,6 +50,10 @@ export function parseCli(): CliResult {
 
   if (!cmd || cmd === "--help" || cmd === "-h" || cmd === "help") {
     return { type: "help" };
+  }
+
+  if (cmd === "-v" || cmd === "--version" || cmd === "version") {
+    return { type: "version" };
   }
 
   // Build a simple flag map from remaining args
@@ -281,6 +286,7 @@ ${bold}agenthub${reset} — Multi-agent Claude CLI orchestration hub
 
 ${bold}Usage:${reset}
   ${cyan}agenthub <command> [--flags]${reset}
+  ${cyan}agenthub --version${reset}                  Print the embedded version (-v)
 
 ${bold}Commands:${reset}
   ${cyan}server${reset}                             Start dashboard + API server

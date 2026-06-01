@@ -4,6 +4,7 @@ import { serverTiming } from "@elysiajs/server-timing";
 import { apiPlugin } from "./plugins/routeApi";
 import { appPlugin } from "./plugins/routeApp";
 import { envConfig } from "../env-config";
+import { VERSION } from "../version";
 
 /**
  * AgentHub dashboard server.
@@ -20,9 +21,11 @@ export function createServer() {
 
 export function startServer(): void {
   const app = createServer().listen(envConfig.SERVER_PORT);
-  console.log(
-    `🦊 AgentHub running at http://localhost:${app.server?.port}`,
-  );
+  const port = app.server?.port;
+  // Startup banner: version + where the dashboard and database live.
+  console.log(`\n  🦊 AgentHub v${VERSION}`);
+  console.log(`     Dashboard  http://localhost:${port}`);
+  console.log(`     Database   ${envConfig.HUB_DB_PATH}\n`);
 }
 
 export type App = ReturnType<typeof createServer>;

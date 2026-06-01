@@ -9,12 +9,18 @@ import { runInboxPoll, runInboxWait } from "./commands/inbox";
 import { runMessageSend, runMessageDone } from "./commands/message";
 import { runContextInject, runContextApplied } from "./commands/context";
 import { catchError } from "./lib/error-handler";
+import { NAME, VERSION } from "./version";
 
 async function main(): Promise<void> {
   const result = parseCli();
 
   if (result.type === "help") {
     printUsage();
+    process.exit(0);
+  }
+
+  if (result.type === "version") {
+    console.log(`${NAME} v${VERSION}`);
     process.exit(0);
   }
 
@@ -32,7 +38,7 @@ async function main(): Promise<void> {
 }
 
 /** Route a parsed CLI result to the appropriate command handler */
-async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "help" | "error" }>): Promise<void> {
+async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "help" | "version" | "error" }>): Promise<void> {
   switch (result.type) {
     case "server":
       return runServer(result.port);
