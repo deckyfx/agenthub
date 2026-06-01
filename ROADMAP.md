@@ -27,6 +27,11 @@ Smarter agents, fewer tokens, sleeker dashboard.
   keep a short digest current; a joining or restarted agent reads it at the top
   of its prompt to catch up without re-reading the whole history. Editable from
   the dashboard's Context dialog.
+- **Token-lean loop:** new `agent:tick` does heartbeat + poll in one call, and
+  only re-sends the member roster when it actually changed (the agent passes back
+  a `members_version`; otherwise `channel_members` is null). Halves the per-loop
+  command count and skips the repeated roster on busy channels. The generated
+  prompt now drives the loop with `agent:tick`.
 
 ## v0.2.1 — 2026-06-01
 

@@ -5,7 +5,7 @@ import { runAgentRegister, runAgentHeartbeat } from "./commands/agent";
 import { runGroupCreate, runGroupAdd, runGroupMembers } from "./commands/group";
 import { runChannelCreate, runChannelJoin, runChannelLeave, runChannelList, runChannelMembers, runChannelSummary } from "./commands/channel";
 import { runPromptShow } from "./commands/prompt";
-import { runInboxPoll, runInboxWait } from "./commands/inbox";
+import { runInboxPoll, runInboxWait, runAgentTick } from "./commands/inbox";
 import { runMessageSend, runMessageDone } from "./commands/message";
 import { runContextInject, runContextApplied } from "./commands/context";
 import { catchError } from "./lib/error-handler";
@@ -51,6 +51,13 @@ async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "he
 
     case "agent:heartbeat":
       return runAgentHeartbeat(result.alias, result.channel, result.status, result.note);
+
+    case "agent:tick":
+      return runAgentTick(result.alias, result.channel, {
+        status: result.status,
+        note: result.note,
+        membersVersion: result.membersVersion,
+      });
 
     case "group:create":
       return runGroupCreate(result.id, result.name, result.description);

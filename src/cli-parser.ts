@@ -8,6 +8,7 @@ export type CliResult =
   | { type: "init"; dbPath?: string }
   | { type: "agent:register"; id: string; dir: string; name: string }
   | { type: "agent:heartbeat"; alias: string; channel: string; status: AgentStatus; note?: string }
+  | { type: "agent:tick"; alias: string; channel: string; status?: AgentStatus; note?: string; membersVersion?: string }
   | { type: "group:create"; id: string; name: string; description?: string }
   | { type: "group:add"; group: string; agent: string }
   | { type: "group:members"; group: string }
@@ -171,6 +172,18 @@ export function parseCli(): CliResult {
         // Print a member's join prompt. Identity is the alias within a channel.
         requireFlags(flags, ["channel", "alias"]);
         return { type: "prompt", channel: flags["channel"]!, alias: flags["alias"]! };
+
+      case "agent:tick":
+        // heartbeat + poll in one call; status defaults to "working".
+        requireFlags(flags, ["agent", "channel"]);
+        return {
+          type: "agent:tick",
+          alias: flags["agent"]!,
+          channel: flags["channel"]!,
+          status: flags["status"] as AgentStatus | undefined,
+          note: flags["note"],
+          membersVersion: flags["members-version"],
+        };
 
       case "inbox:poll":
         requireFlags(flags, ["agent", "channel"]);
@@ -338,6 +351,9 @@ ${bold}Commands:${reset}
 
   ${cyan}prompt${reset}                             Print a member's join prompt (execute & follow it)
     --channel <id> --alias <name>
+
+  ${cyan}agent:tick${reset}                         Heartbeat + poll in one call (token-lean loop)
+    --as <alias> --channel <id> [--status <…>] [--note "<…>"] [--members-version <v>]
 
   ${cyan}inbox:poll${reset}                         Poll for new messages + context (channel-scoped)
     --as <alias> --channel <id>

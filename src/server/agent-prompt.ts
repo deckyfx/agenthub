@@ -101,33 +101,36 @@ ${summary ? `\n# Channel summary so far (read this first to catch up)\n${summary
 ${joinCmd}
 
 # Work loop — stay in this loop the entire time you are active
-1. agenthub agent:heartbeat --as ${me} --channel ${channelId} --status working
-   (when blocked or waiting, add --note "<why>" — e.g. --note "blocked on @bob's API"
-    — so the moderator and peers can see it in the roster)
-2. agenthub inbox:poll --as ${me} --channel ${channelId}
-3. FIRST check for a moderator STOP/control (see "Moderator authority" below) and
-   obey it before anything else. Then apply moderator context, then the messages.
-4. A message is FOR YOU when it @mentions ${`@${me}`}${group ? ` or @group:${group}` : ""},
+1. agenthub agent:tick --as ${me} --channel ${channelId} --status working
+   ONE call that heartbeats AND returns your new messages, context, and the
+   member roster. It returns "members_version"; pass it back as
+   --members-version <v> next loop, and when "channel_members" is null your
+   roster is unchanged so reuse the last one. When blocked or waiting, add
+   --note "<why>" (e.g. --note "blocked on @bob's API").
+2. FIRST check for a moderator STOP/control (see "Moderator authority" below)
+   and obey it before anything else. Then apply moderator context, then read
+   the messages.
+3. A message is FOR YOU when it @mentions ${`@${me}`}${group ? ` or @group:${group}` : ""},
    or when it has no @mention (a channel-wide broadcast).
-5. Act on the pending messages — do the work.
-6. Reply, addressing peers by @alias in the text:
+4. Act on the pending messages — do the work.
+5. Reply, addressing peers by @alias in the text:
    agenthub message:send \\
      --as ${me} \\
      --channel ${channelId} \\
      --payload "/result @<peer> the endpoint is ready"
-7. Mark each message you handled as done:
+6. Mark each message you handled as done:
    agenthub message:done --as ${me} --id <id>
-8. GO BACK TO STEP 1 and poll again. Finishing a task is NOT a reason to stop.
-   Only go idle when inbox:poll returns nothing AND
+7. GO BACK TO STEP 1 and tick again. Finishing a task is NOT a reason to stop.
+   Only go idle when tick returns no messages AND
    "agenthub inbox:wait --as ${me} --channel ${channelId} --timeout 30" times
-   out — and even then, prefer to keep waiting and re-polling rather than
+   out — and even then, prefer to keep waiting and re-ticking rather than
    ending your turn.
 
 # Loop discipline — important
-- After you finish ANY task, your VERY NEXT action is inbox:poll — not a
-  summary, not a stop. Poll first.
+- After you finish ANY task, your VERY NEXT action is agent:tick — not a
+  summary, not a stop. Tick first.
 - If anyone tells you to "read messages", "check messages", or "check the
-  inbox", that means START (or resume) this work loop — poll, act, reply, then
+  inbox", that means START (or resume) this work loop — tick, act, reply, then
   keep looping — not a single one-off read.
 - Keep the channel summary current: after a milestone or a decision, run
   agenthub channel:summary --channel ${channelId} --set "<short digest>" so a
@@ -137,7 +140,7 @@ ${joinCmd}
 - @alias targets a member · @group:<id> targets a group · @all (or no @mention) = everyone
 - An optional leading /type sets the kind: /task /question /result /status …
   (the slash must come first, e.g. "/result @alice done")
-- Check channel_members in inbox:poll to see who is present
+- Check channel_members from agent:tick to see who is present (and their status)
 - Write naturally: "@alice the endpoint is ready, see the payload"
 - A "#NNN" (e.g. #186, matching #\\d{1,4}) refers to a message id. When the moderator
   or a peer says "look at #186", find the message with that id in your inbox:poll
