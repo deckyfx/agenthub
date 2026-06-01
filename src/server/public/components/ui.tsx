@@ -47,17 +47,15 @@ export function Dialog({ open, onClose, title, icon, widthClass = "max-w-md", ch
   // Portal to <body> so the fixed overlay covers the full viewport regardless
   // of where it's rendered. (A transformed ancestor — e.g. the sliding sidebar —
   // would otherwise become the containing block and clamp the dialog to it.)
+  // Backdrop clicks do NOT close the dialog (too easy to dismiss accidentally);
+  // use the × button or Escape instead.
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4 sm:p-8"
-      onMouseDown={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4 sm:p-8">
       <div
         className={cn(
           "w-full rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/50 my-auto",
           widthClass,
         )}
-        onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2.5 border-b border-zinc-800 px-5 py-3.5">
           {icon && <span className="text-indigo-400">{icon}</span>}

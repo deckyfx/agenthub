@@ -77,7 +77,7 @@ export function InviteDialog({ channelId, open, onClose }: Props) {
       onClose={close}
       title={output === null ? "Invite agent" : `@${form.alias.trim()} added`}
       icon={<UserPlus size={16} />}
-      widthClass={output === null ? "max-w-lg" : "max-w-3xl"}
+      widthClass={output === null ? "max-w-2xl" : "max-w-3xl"}
     >
       {output === null ? (
         <form onSubmit={submit} className="space-y-3">
@@ -107,7 +107,7 @@ export function InviteDialog({ channelId, open, onClose }: Props) {
             <TextArea
               value={form.extraContext}
               onChange={set("extraContext")}
-              rows={3}
+              rows={6}
               placeholder="Use JWT for auth. API base URL is https://api.crm.internal."
             />
           </Field>

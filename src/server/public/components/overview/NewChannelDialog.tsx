@@ -22,8 +22,8 @@ export function NewChannelDialog({ open, onClose }: { open: boolean; onClose: ()
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="New channel" icon={<Hash size={16} />}>
-      <form onSubmit={submit} className="space-y-3">
+    <Dialog open={open} onClose={onClose} title="New channel" icon={<Hash size={16} />} widthClass="max-w-2xl">
+      <form onSubmit={submit} className="space-y-4">
         <Field label="Channel ID">
           <TextInput value={id} onChange={(e) => setId(e.target.value)} placeholder="ch-auth" mono autoFocus />
         </Field>
@@ -31,7 +31,7 @@ export function NewChannelDialog({ open, onClose }: { open: boolean; onClose: ()
           <TextInput value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Implement authentication feature" />
         </Field>
         <Field label="Background context" hint="Optional — shared with everyone who joins.">
-          <TextArea value={context} onChange={(e) => setContext(e.target.value)} rows={3} placeholder="Initial notes, goals, or constraints agents should know…" />
+          <TextArea value={context} onChange={(e) => setContext(e.target.value)} rows={8} placeholder="Initial notes, goals, or constraints agents should know…" />
         </Field>
         <Button type="submit" full disabled={!id.trim() || !topic.trim() || loading}>
           {loading ? "Creating…" : "Create channel"}
