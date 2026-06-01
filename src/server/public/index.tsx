@@ -8,6 +8,7 @@ import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { MembersPanel } from "./components/channel/MembersPanel";
 import { AgentPromptDialog } from "./components/channel/AgentPromptDialog";
 import { useHub } from "./lib/store";
+import { VERSION } from "../../version";
 import type { AgentChannel } from "../../db/schema";
 
 type Page = { view: "overview" } | { view: "channel"; id: string };
@@ -135,6 +136,9 @@ function App() {
 
         <div className="border-t border-zinc-800 p-2">
           <ThemeSwitcher collapsed={collapsed} />
+          <p className={cn("px-2.5 pt-1.5 text-[10px] text-zinc-600", collapsed && "md:hidden")}>
+            v{VERSION}
+          </p>
         </div>
       </aside>
 
