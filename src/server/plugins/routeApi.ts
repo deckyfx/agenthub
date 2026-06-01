@@ -200,7 +200,9 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
         channelId: body.channel_id,
         body: body.body,
       });
-      return { ok: true, sent_count: messages.length, messages };
+      // The dashboard re-polls after sending, so don't echo the fanned-out rows.
+      const to = [...new Set(messages.map((m) => m.to_alias).filter((a): a is string => Boolean(a)))];
+      return { ok: true, sent_count: messages.length, to };
     },
     {
       body: t.Object({

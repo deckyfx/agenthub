@@ -151,7 +151,11 @@ export async function runMessageSend(opts: {
     type: opts.type,
     to: opts.to,
   });
-  console.log(JSON.stringify({ ok: true, sent_count: sent.length, messages: sent }));
+  // Compact result: the sender just wrote this text, so don't echo the full
+  // (fanned-out, one-per-recipient) rows back — that's wasted tokens. Report the
+  // count and who it reached.
+  const recipients = [...new Set(sent.map((m) => m.to_alias).filter((a): a is string => Boolean(a)))];
+  console.log(JSON.stringify({ ok: true, sent_count: sent.length, to: recipients }));
 }
 
 /** message:done — Mark a message as done by the handling agent. */
