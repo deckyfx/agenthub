@@ -7,7 +7,7 @@ export type CliResult =
   | { type: "server"; port?: number }
   | { type: "init"; dbPath?: string }
   | { type: "agent:register"; id: string; dir: string; name: string }
-  | { type: "agent:heartbeat"; alias: string; channel: string; status: AgentStatus }
+  | { type: "agent:heartbeat"; alias: string; channel: string; status: AgentStatus; note?: string }
   | { type: "group:create"; id: string; name: string; description?: string }
   | { type: "group:add"; group: string; agent: string }
   | { type: "group:members"; group: string }
@@ -100,6 +100,7 @@ export function parseCli(): CliResult {
           alias: flags["agent"]!,
           channel: flags["channel"]!,
           status: flags["status"] as AgentStatus,
+          note: flags["note"],
         };
 
       case "group:create":
@@ -300,6 +301,7 @@ ${bold}Commands:${reset}
 
   ${cyan}agent:heartbeat${reset}                    Send heartbeat + status
     --as <alias> --channel <id> --status <idle|working|waiting|blocked|done>
+    [--note "<short reason, e.g. blocked on @bob>"]
 
   ${cyan}group:create${reset}                       Create a project group
     --id <id> --name <name> [--description <desc>]

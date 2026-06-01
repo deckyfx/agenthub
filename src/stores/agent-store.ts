@@ -54,15 +54,23 @@ export class AgentStore {
    * Update heartbeat and optional status.
    * @throws AgentNotFoundError if agent does not exist
    */
-  static async heartbeat(id: string, status: AgentStatus): Promise<Agent> {
+  static async heartbeat(
+    id: string,
+    status: AgentStatus,
+    note?: string,
+  ): Promise<Agent> {
     await this.requireById(id);
+
+    const updates: { status: AgentStatus; last_heartbeat: number; status_note?: string | null } = {
+      status,
+      last_heartbeat: Math.floor(Date.now() / 1000),
+    };
+    // Only touch the note when one was supplied; an empty string clears it.
+    if (note !== undefined) updates.status_note = note.trim() || null;
 
     const result = await db
       .update(agents)
-      .set({
-        status,
-        last_heartbeat: Math.floor(Date.now() / 1000),
-      })
+      .set(updates)
       .where(eq(agents.id, id))
       .returning();
 

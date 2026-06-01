@@ -50,7 +50,7 @@ async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "he
       return runAgentRegister(result.id, result.dir, result.name);
 
     case "agent:heartbeat":
-      return runAgentHeartbeat(result.alias, result.channel, result.status);
+      return runAgentHeartbeat(result.alias, result.channel, result.status, result.note);
 
     case "group:create":
       return runGroupCreate(result.id, result.name, result.description);

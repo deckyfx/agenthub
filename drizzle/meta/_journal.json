@@ -15,6 +15,13 @@
       "when": 1780240581357,
       "tag": "0001_futuristic_clint_barton",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780292749813,
+      "tag": "0002_omniscient_bushwacker",
+      "breakpoints": true
     }
   ]
 }

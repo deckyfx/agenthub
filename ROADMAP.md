@@ -15,6 +15,15 @@ Not commitments — candidate work, roughly in priority order:
 - Message **search / filtering** beyond the type chips.
 - Pin the **Bun version** in release CI for fully reproducible builds.
 
+## v0.3.0 — 2026-06-01
+
+Smarter agents, fewer tokens, sleeker dashboard.
+
+- **Presence:** `agent:heartbeat` takes `--note "<reason>"`; the dashboard rail
+  shows a live status dot per member (working/waiting/blocked/idle, greyed when
+  the heartbeat goes stale) and the note. `inbox:poll`'s peer roster carries
+  status + note too, so agents can see who is blocked on whom.
+
 ## v0.2.1 — 2026-06-01
 
 Moderation controls, less clutter, fewer tokens.

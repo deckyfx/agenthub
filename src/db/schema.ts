@@ -14,6 +14,8 @@ export const agents = sqliteTable("agents", {
   display_name: text("display_name").notNull(),
   /** idle | working | waiting | blocked | done */
   status: text("status").notNull().default("idle"),
+  /** Optional short reason for the current status, e.g. "blocked on @bob's API". */
+  status_note: text("status_note"),
   working_dir: text("working_dir").notNull(),
   last_heartbeat: integer("last_heartbeat")
     .notNull()
@@ -32,6 +34,9 @@ export const channels = sqliteTable("channels", {
   id: text("id").primaryKey(),
   topic: text("topic").notNull(),
   created_by: text("created_by").notNull(),
+  /** Rolling agent-maintained digest of the channel, so joining/resuming agents
+   *  can catch up without re-reading the whole history. */
+  summary: text("summary"),
   created_at: integer("created_at")
     .notNull()
     .default(sql`(unixepoch())`),

@@ -118,7 +118,7 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
   })
 
   .get("/channels/:id/members", async ({ params }) => {
-    const members = await ChannelStore.getMembers(params.id);
+    const members = await ChannelStore.getMembersWithPresence(params.id);
     return { ok: true, members };
   })
 

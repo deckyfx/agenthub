@@ -25,11 +25,13 @@ export async function runInboxPoll(alias: string, channelId: string): Promise<vo
     ContextStore.pollForChannelAgent(channelId, agentId, alias, groupIds),
   ]);
 
-  const subs = await ChannelStore.getMembers(channelId);
+  const subs = await ChannelStore.getMembersWithPresence(channelId);
   const channelMembers = subs.map((s) => ({
     alias: s.alias,
     agent_id: s.agent_id,
     role: s.role_description ?? null,
+    status: s.status,
+    status_note: s.status_note ?? null,
   }));
 
   // Mark messages as read

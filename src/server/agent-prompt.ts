@@ -99,6 +99,8 @@ ${joinCmd}
 
 # Work loop — stay in this loop the entire time you are active
 1. agenthub agent:heartbeat --as ${me} --channel ${channelId} --status working
+   (when blocked or waiting, add --note "<why>" — e.g. --note "blocked on @bob's API"
+    — so the moderator and peers can see it in the roster)
 2. agenthub inbox:poll --as ${me} --channel ${channelId}
 3. FIRST check for a moderator STOP/control (see "Moderator authority" below) and
    obey it before anything else. Then apply moderator context, then the messages.

@@ -8,15 +8,22 @@ export interface Group {
   display_name: string;
 }
 
+/** A channel member enriched with live presence (GET /api/channels/:id/members). */
+export interface MemberPresence extends AgentChannel {
+  status: string;
+  status_note: string | null;
+  last_heartbeat: number;
+}
+
 /** Stable empty references so selectors never return a fresh array. */
-const EMPTY_MEMBERS: AgentChannel[] = [];
+const EMPTY_MEMBERS: MemberPresence[] = [];
 const EMPTY_MESSAGES: Message[] = [];
 
 interface HubState {
   channels: Channel[];
   groups: Group[];
   contexts: ContextInjection[];
-  membersByChannel: Record<string, AgentChannel[]>;
+  membersByChannel: Record<string, MemberPresence[]>;
   messagesByChannel: Record<string, Message[]>;
   loaded: boolean;
 
@@ -64,7 +71,7 @@ export const useHub = create<HubState>((set, get) => ({
     const groups = (grRes.data?.groups ?? []) as Group[];
     const contexts = (ctxRes.data?.context ?? []) as ContextInjection[];
 
-    const membersByChannel: Record<string, AgentChannel[]> = {};
+    const membersByChannel: Record<string, MemberPresence[]> = {};
     const messagesByChannel: Record<string, Message[]> = {};
     await Promise.all(
       channels.map(async (ch) => {
@@ -72,7 +79,7 @@ export const useHub = create<HubState>((set, get) => ({
           api.api.channels({ id: ch.id }).members.get(),
           api.api.channels({ id: ch.id }).messages.get(),
         ]);
-        membersByChannel[ch.id] = (mRes.data?.members ?? []) as AgentChannel[];
+        membersByChannel[ch.id] = (mRes.data?.members ?? []) as MemberPresence[];
         messagesByChannel[ch.id] = (msgRes.data?.messages ?? []) as Message[];
       }),
     );
@@ -152,7 +159,7 @@ export const useHub = create<HubState>((set, get) => ({
 
 // ── Selector helpers (return stable refs; derive in components) ──
 
-export const selectMembers = (channelId: string) => (s: HubState): AgentChannel[] =>
+export const selectMembers = (channelId: string) => (s: HubState): MemberPresence[] =>
   s.membersByChannel[channelId] ?? EMPTY_MEMBERS;
 
 export const selectMessages = (channelId: string) => (s: HubState): Message[] =>

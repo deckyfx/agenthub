@@ -36,8 +36,9 @@ export async function runAgentHeartbeat(
   alias: string,
   channelId: string,
   status: AgentStatus,
+  note?: string,
 ): Promise<void> {
   const agentId = await ChannelStore.resolveAlias(alias, channelId);
-  const agent = await AgentStore.heartbeat(agentId, status);
+  const agent = await AgentStore.heartbeat(agentId, status, note);
   console.log(JSON.stringify({ ok: true, agent }));
 }

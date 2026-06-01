@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { channels, agentChannels } from "../db/schema";
+import { channels, agentChannels, agents } from "../db/schema";
 import {
   ChannelNotFoundError,
   AliasConflictError,
@@ -8,6 +8,13 @@ import {
   AliasNotFoundError,
 } from "../errors/custom-errors";
 import type { Channel, NewChannel, AgentChannel } from "../db/schema";
+
+/** A channel member plus its live presence from the agents table. */
+export interface MemberWithPresence extends AgentChannel {
+  status: string;
+  status_note: string | null;
+  last_heartbeat: number;
+}
 
 /** Repository for channel and subscription operations */
 export class ChannelStore {
@@ -127,6 +134,28 @@ export class ChannelStore {
     return db
       .select()
       .from(agentChannels)
+      .where(eq(agentChannels.channel_id, channelId));
+  }
+
+  /**
+   * Get a channel's members enriched with live presence (status, status note,
+   * and last heartbeat) from the agents table — for the dashboard rail and the
+   * inbox peer roster.
+   */
+  static async getMembersWithPresence(channelId: string): Promise<MemberWithPresence[]> {
+    return db
+      .select({
+        agent_id: agentChannels.agent_id,
+        channel_id: agentChannels.channel_id,
+        alias: agentChannels.alias,
+        role_description: agentChannels.role_description,
+        subscribed_at: agentChannels.subscribed_at,
+        status: agents.status,
+        status_note: agents.status_note,
+        last_heartbeat: agents.last_heartbeat,
+      })
+      .from(agentChannels)
+      .innerJoin(agents, eq(agentChannels.agent_id, agents.id))
       .where(eq(agentChannels.channel_id, channelId));
   }
 

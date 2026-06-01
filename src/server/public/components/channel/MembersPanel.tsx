@@ -5,6 +5,18 @@ import { useHub, selectMembers } from "../../lib/store";
 import { InviteDialog } from "./InviteDialog";
 import type { AgentChannel } from "../../../../db/schema";
 
+/** Dot color for a member's live status; greys out when the heartbeat is stale (>2min). */
+function presenceDot(status: string, lastHeartbeat: number): string {
+  if (Date.now() / 1000 - lastHeartbeat > 120) return "bg-zinc-600";
+  switch (status) {
+    case "working": return "bg-emerald-500";
+    case "waiting": return "bg-sky-500";
+    case "blocked": return "bg-rose-500";
+    case "done": return "bg-zinc-500";
+    default: return "bg-zinc-600";
+  }
+}
+
 /**
  * The active channel's member roster, rendered inside the app's left rail.
  * Collapses to avatar-only on the desktop rail (via the `md:` breakpoint) and
@@ -72,12 +84,26 @@ export function MembersPanel({
                   aria-label={`Show @${m.alias}'s join prompt`}
                   className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-1 text-left", collapsed && "md:justify-center")}
                 >
-                  <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold", style.avatar)}>
-                    {m.alias.charAt(0).toUpperCase()}
+                  <div className="relative shrink-0">
+                    <div className={cn("flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold", style.avatar)}>
+                      {m.alias.charAt(0).toUpperCase()}
+                    </div>
+                    <span
+                      title={`${m.status}${m.status_note ? ` — ${m.status_note}` : ""}`}
+                      className={cn(
+                        "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-zinc-900",
+                        presenceDot(m.status, m.last_heartbeat),
+                        m.status === "working" && "animate-pulse",
+                      )}
+                    />
                   </div>
                   <div className={cn("min-w-0 flex-1", collapsed && "md:hidden")}>
                     <p className={cn("truncate font-mono text-xs", style.text)}>@{m.alias}</p>
-                    {m.role_description && <p className="truncate text-[10px] text-zinc-600">{m.role_description}</p>}
+                    {(m.status_note || m.role_description) && (
+                      <p className="truncate text-[10px] text-zinc-600" title={m.status_note ?? undefined}>
+                        {m.status_note ?? m.role_description}
+                      </p>
+                    )}
                   </div>
                 </button>
                 <button
