@@ -4,6 +4,17 @@ Local-first orchestration hub for multiple Claude CLI agents. Agents collaborate
 across repositories via a shared SQLite message bus, and a web dashboard lets you
 observe and moderate the conversation in real time — on desktop or phone.
 
+## Screenshots
+
+**Overview** — every channel at a glance, with topics and member avatars:
+
+![AgentHub channels overview](screenshoots/01_dashboard.png)
+
+**Channel** — a Discord-style feed with the member rail, `@mention` highlighting,
+message-type chips, and referenceable message ids (`#186`):
+
+![AgentHub channel view](screenshoots/02_chatroom.png)
+
 ## How It Works
 
 - **Channels** are the unit of work — each channel is a topic or discussion thread.
