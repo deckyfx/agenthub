@@ -5,6 +5,27 @@
   "type": "module",
   "private": true,
   "license": "MIT",
+  "description": "Local-first orchestration hub for multiple Claude CLI agents collaborating over a shared SQLite message bus, with a web dashboard.",
+  "author": "Decky Fiyemonda (https://github.com/deckyfx)",
+  "homepage": "https://github.com/deckyfx/agenthub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deckyfx/agenthub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/deckyfx/agenthub/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "agents",
+    "multi-agent",
+    "orchestration",
+    "cli",
+    "bun",
+    "elysia",
+    "sqlite"
+  ],
   "bin": {
     "agenthub": "./src/index.ts"
   },
