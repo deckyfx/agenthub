@@ -13,19 +13,24 @@ import { AliasNotFoundError } from "../errors/custom-errors";
  * original. Returns `null` when the channel or membership no longer exists.
  *
  * @param channelId - Channel the agent belongs to.
- * @param agentId - The agent's id (its alias, in the current identity model).
+ * @param idOrAlias - The member's channel-scoped agent id *or* its alias (the
+ *   invite flow knows only the alias; the member list knows the agent id).
  * @returns The rebuilt prompt and the member's alias, or null if not found.
  */
 export async function reconstructPrompt(
   channelId: string,
-  agentId: string,
+  idOrAlias: string,
 ): Promise<{ prompt: string; alias: string } | null> {
   const channel = await ChannelStore.findById(channelId);
   if (!channel) return null;
 
-  const sub = await ChannelStore.getSubscription(agentId, channelId);
+  // Identity is channel-scoped, so the member may be addressed by either its
+  // (compound) agent id or its alias — resolve both here.
+  const members = await ChannelStore.getMembers(channelId);
+  const sub = members.find((m) => m.agent_id === idOrAlias || m.alias === idOrAlias);
   if (!sub) return null;
 
+  const agentId = sub.agent_id;
   const agent = await AgentStore.findById(agentId);
   const groups = await GroupStore.getGroupsForAgent(agentId);
 
