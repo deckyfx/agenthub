@@ -44,7 +44,7 @@ export class MigrationManager {
 
     const pendingCount = await this.getPendingCount(total);
     if (pendingCount === 0) {
-      console.log("✅ Database is up to date");
+      console.log("✅ Database Schema is up to date");
       return;
     }
 
