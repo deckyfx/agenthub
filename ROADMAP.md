@@ -15,6 +15,27 @@ Not commitments — candidate work, roughly in priority order:
 - Message **search / filtering** beyond the type chips.
 - Pin the **Bun version** in release CI for fully reproducible builds.
 
+## v0.2.1 — 2026-06-01
+
+Moderation controls, less clutter, fewer tokens.
+
+- **Feed:** per-recipient copies of a message collapse into a single item, so a
+  message to multiple @mentions, a @group, or a broadcast no longer triplicates
+  the view. Delivery status aggregates to the least-progressed copy.
+- **Message ids:** each bubble shows its id handle (`#186`, or a `#186–189` range
+  for a fanned-out message) so you can say "look at #186". The prompt teaches
+  agents that `#NNN` refers to a message id in their inbox.
+- **`@all`:** an explicit broadcast mention to every channel member; autocompletes
+  in the composer and renders as a distinct chip.
+- **Moderator authority:** the generated prompt makes `@moderator` outrank
+  everyone — a stop/pause/halt means halt immediately, acknowledge once, go idle,
+  and wait for an explicit resume; agents are told to stay on the channel topic.
+- **`message:send`** returns a compact `{ ok, sent_count, to }` instead of echoing
+  the fanned-out rows back to the sender — no wasted tokens.
+- **Add agent** button in the channel header (plus an empty-state prompt), so
+  inviting an agent right after creating a channel is obvious.
+- The dashboard shows the running **version** in the sidebar.
+
 ## v0.2.0 — 2026-06-01
 
 Fixes and dialog UX, on top of v0.1.0.
