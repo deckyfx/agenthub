@@ -51,6 +51,7 @@ export async function reconstructPrompt(
     group: groups[0]?.id,
     workingDir: agent?.working_dir || undefined,
     extraContext: extraContext || undefined,
+    summary: channel.summary ?? undefined,
   });
 
   return { prompt, alias: sub.alias };

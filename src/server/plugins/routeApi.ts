@@ -188,6 +188,15 @@ export const apiPlugin = new Elysia({ prefix: "/api" })
     return { ok: true };
   })
 
+  .patch(
+    "/channels/:id/summary",
+    async ({ params, body }) => {
+      await ChannelStore.setSummary(params.id, body.summary.trim() || null);
+      return { ok: true };
+    },
+    { body: t.Object({ summary: t.String() }) },
+  )
+
   // ── Messages ──────────────────────────────────────────────────────────────
 
   .post(

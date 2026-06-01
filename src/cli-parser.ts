@@ -16,6 +16,7 @@ export type CliResult =
   | { type: "channel:leave"; agent: string; channel: string }
   | { type: "channel:list"; agent: string }
   | { type: "channel:members"; channel: string }
+  | { type: "channel:summary"; channel: string; set?: string }
   | { type: "prompt"; channel: string; alias: string }
   | { type: "inbox:poll"; alias: string; channel: string }
   | { type: "inbox:wait"; alias: string; channel: string; timeout: number }
@@ -160,6 +161,11 @@ export function parseCli(): CliResult {
       case "channel:members":
         requireFlags(flags, ["channel"]);
         return { type: "channel:members", channel: flags["channel"]! };
+
+      case "channel:summary":
+        // No --set → print the current summary; --set "<text>" → update it.
+        requireFlags(flags, ["channel"]);
+        return { type: "channel:summary", channel: flags["channel"]!, set: flags["set"] };
 
       case "prompt":
         // Print a member's join prompt. Identity is the alias within a channel.
@@ -326,6 +332,9 @@ ${bold}Commands:${reset}
 
   ${cyan}channel:members${reset}                    List channel members
     --channel <id>
+
+  ${cyan}channel:summary${reset}                    Get or set the channel's rolling summary
+    --channel <id> [--set "<digest text>"]
 
   ${cyan}prompt${reset}                             Print a member's join prompt (execute & follow it)
     --channel <id> --alias <name>

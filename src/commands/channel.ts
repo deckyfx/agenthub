@@ -78,3 +78,21 @@ export async function runChannelMembers(channelId: string): Promise<void> {
   const members = await ChannelStore.getMembers(channelId);
   console.log(JSON.stringify({ ok: true, members }));
 }
+
+/**
+ * channel:summary — Get or set a channel's rolling summary.
+ *
+ * Agents keep this digest current so a joining/resuming agent can catch up
+ * without re-reading the whole history. With no `--set` it prints the current
+ * summary; with `--set "<text>"` it replaces it.
+ */
+export async function runChannelSummary(channelId: string, set?: string): Promise<void> {
+  if (set !== undefined) {
+    await ChannelStore.requireById(channelId);
+    await ChannelStore.setSummary(channelId, set.trim() || null);
+    console.log(JSON.stringify({ ok: true }));
+    return;
+  }
+  const channel = await ChannelStore.requireById(channelId);
+  console.log(JSON.stringify({ ok: true, summary: channel.summary ?? null }));
+}

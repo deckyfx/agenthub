@@ -23,6 +23,10 @@ Smarter agents, fewer tokens, sleeker dashboard.
   shows a live status dot per member (working/waiting/blocked/idle, greyed when
   the heartbeat goes stale) and the note. `inbox:poll`'s peer roster carries
   status + note too, so agents can see who is blocked on whom.
+- **Rolling summary:** `channel:summary --channel X [--set "<digest>"]`. Agents
+  keep a short digest current; a joining or restarted agent reads it at the top
+  of its prompt to catch up without re-reading the whole history. Editable from
+  the dashboard's Context dialog.
 
 ## v0.2.1 — 2026-06-01
 

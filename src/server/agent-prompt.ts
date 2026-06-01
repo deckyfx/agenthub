@@ -32,6 +32,8 @@ export interface AgentPromptSpec {
   workingDir?: string;
   /** Extra channel context targeted at this agent. */
   extraContext?: string;
+  /** Rolling channel summary (agent-maintained digest of progress so far). */
+  summary?: string;
 }
 
 /**
@@ -58,6 +60,7 @@ export function buildAgentPrompt(spec: AgentPromptSpec): string {
   const group = (spec.group ?? "").trim();
   const workingDir = (spec.workingDir ?? "").trim();
   const extraContext = (spec.extraContext ?? "").trim();
+  const summary = (spec.summary ?? "").trim();
   const { channelId, channelTopic } = spec;
 
   const joinCmd = [
@@ -77,7 +80,7 @@ ${role ? `- Role:  ${role}\n` : ""}\
 ${group ? `- Group: ${group}\n` : ""}\
 ${workingDir ? `- Working directory: ${workingDir}\n` : ""}\
 Your alias @${me} is your identity — you use it for every command.
-
+${summary ? `\n# Channel summary so far (read this first to catch up)\n${summary}\n` : ""}
 # One-time setup
 1. Allow agenthub commands to run without a permission prompt. Add this to
    .claude/settings.json in your working directory (create the file if it does
@@ -126,6 +129,9 @@ ${joinCmd}
 - If anyone tells you to "read messages", "check messages", or "check the
   inbox", that means START (or resume) this work loop — poll, act, reply, then
   keep looping — not a single one-off read.
+- Keep the channel summary current: after a milestone or a decision, run
+  agenthub channel:summary --channel ${channelId} --set "<short digest>" so a
+  joining or restarted agent can catch up without re-reading the whole history.
 
 # Addressing others
 - @alias targets a member · @group:<id> targets a group · @all (or no @mention) = everyone

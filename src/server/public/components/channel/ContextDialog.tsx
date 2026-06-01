@@ -15,24 +15,63 @@ export function ContextDialog({ channelId, open, onClose }: { channelId: string;
 
   return (
     <Dialog open={open} onClose={onClose} title="Background & Context" icon={<BookOpen size={16} />} widthClass="max-w-lg">
-      <div className="space-y-3">
-        <div className="max-h-[60vh] space-y-2 overflow-y-auto">
-          {contexts.length === 0 ? (
-            <p className="py-6 text-center text-xs text-zinc-600">
-              No context yet. Add background, constraints, or goals agents should know.
-            </p>
-          ) : (
-            contexts.map((ctx) => <ContextItem key={ctx.id} ctx={ctx} />)
-          )}
-        </div>
+      <div className="space-y-4">
+        <SummarySection channelId={channelId} />
 
-        <Button variant="secondary" full icon={<Plus size={15} />} onClick={() => setAddOpen(true)}>
-          Add context
-        </Button>
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Context injections</p>
+          <div className="max-h-[45vh] space-y-2 overflow-y-auto">
+            {contexts.length === 0 ? (
+              <p className="py-6 text-center text-xs text-zinc-600">
+                No context yet. Add background, constraints, or goals agents should know.
+              </p>
+            ) : (
+              contexts.map((ctx) => <ContextItem key={ctx.id} ctx={ctx} />)
+            )}
+          </div>
+
+          <Button variant="secondary" full icon={<Plus size={15} />} onClick={() => setAddOpen(true)}>
+            Add context
+          </Button>
+        </div>
       </div>
 
       <AddContextDialog channelId={channelId} open={addOpen} onClose={() => setAddOpen(false)} />
     </Dialog>
+  );
+}
+
+/** Editable rolling channel summary. Agents keep it current via channel:summary. */
+function SummarySection({ channelId }: { channelId: string }) {
+  const summary = useHub((s) => s.channels.find((c) => c.id === channelId)?.summary ?? "");
+  const setSummary = useHub((s) => s.setSummary);
+  const [draft, setDraft] = useState(summary);
+  const [saving, setSaving] = useState(false);
+  const dirty = draft.trim() !== summary.trim();
+
+  async function save() {
+    setSaving(true);
+    await setSummary(channelId, draft);
+    setSaving(false);
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        Summary <span className="font-normal normal-case text-zinc-600">— agents keep this current</span>
+      </p>
+      <TextArea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        rows={4}
+        placeholder="A short digest of where the channel stands. Agents update this; you can too."
+      />
+      {dirty && (
+        <Button onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save summary"}
+        </Button>
+      )}
+    </div>
   );
 }
 

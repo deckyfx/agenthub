@@ -33,6 +33,7 @@ interface HubState {
   // ── Mutations (all via Eden Treaty; each refreshes afterwards) ──
   createChannel: (id: string, topic: string, context?: string) => Promise<void>;
   archiveChannel: (channelId: string) => Promise<void>;
+  setSummary: (channelId: string, summary: string) => Promise<void>;
   invite: (
     channelId: string,
     opts: { alias: string; role?: string; group?: string; workingDir?: string; extraContext?: string },
@@ -102,6 +103,11 @@ export const useHub = create<HubState>((set, get) => ({
 
   archiveChannel: async (channelId) => {
     await api.api.channels({ id: channelId }).archive.patch({});
+    await get().poll();
+  },
+
+  setSummary: async (channelId, summary) => {
+    await api.api.channels({ id: channelId }).summary.patch({ summary });
     await get().poll();
   },
 

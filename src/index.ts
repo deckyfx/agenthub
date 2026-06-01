@@ -3,7 +3,7 @@ import { runServer } from "./commands/server";
 import { runInit } from "./commands/init";
 import { runAgentRegister, runAgentHeartbeat } from "./commands/agent";
 import { runGroupCreate, runGroupAdd, runGroupMembers } from "./commands/group";
-import { runChannelCreate, runChannelJoin, runChannelLeave, runChannelList, runChannelMembers } from "./commands/channel";
+import { runChannelCreate, runChannelJoin, runChannelLeave, runChannelList, runChannelMembers, runChannelSummary } from "./commands/channel";
 import { runPromptShow } from "./commands/prompt";
 import { runInboxPoll, runInboxWait } from "./commands/inbox";
 import { runMessageSend, runMessageDone } from "./commands/message";
@@ -75,6 +75,9 @@ async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "he
 
     case "channel:members":
       return runChannelMembers(result.channel);
+
+    case "channel:summary":
+      return runChannelSummary(result.channel, result.set);
 
     case "prompt":
       return runPromptShow(result.channel, result.alias);

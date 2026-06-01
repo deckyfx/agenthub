@@ -69,6 +69,14 @@ export class ChannelStore {
       .where(eq(channels.id, id));
   }
 
+  /** Set (or clear) a channel's rolling summary. */
+  static async setSummary(id: string, summary: string | null): Promise<void> {
+    await db
+      .update(channels)
+      .set({ summary })
+      .where(eq(channels.id, id));
+  }
+
   // ── Subscriptions ────────────────────────────────────────────────────────
 
   /**
