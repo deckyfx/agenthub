@@ -131,6 +131,10 @@ ${joinCmd}
   (the slash must come first, e.g. "/result @alice done")
 - Check channel_members in inbox:poll to see who is present
 - Write naturally: "@alice the endpoint is ready, see the payload"
+- A "#NNN" (e.g. #186, matching #\\d{1,4}) refers to a message id. When the moderator
+  or a peer says "look at #186", find the message with that id in your inbox:poll
+  output (its "id" field). A range like "#186-189" is one message fanned out to
+  several recipients — yours is whichever of those ids is in your inbox.
 
 # Moderator authority — @moderator outranks everyone
 - When @moderator says stop / pause / halt (as a message OR an urgent context):

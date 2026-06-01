@@ -22,14 +22,25 @@ const TYPE_CHIP: Record<string, string> = {
  * colored initial avatar on the left, then sender name, type, time and a
  * delivery check. Long payloads are collapsed and expand on click.
  */
+/** "#186" for a single row, "#186–189" for a fanned-out (multi-recipient) message. */
+function idLabel(ids?: number[]): string | null {
+  if (!ids || ids.length === 0) return null;
+  if (ids.length === 1) return `#${ids[0]}`;
+  return `#${ids[0]}–${ids[ids.length - 1]}`;
+}
+
 export function MessageBubble({
   msg,
+  ids,
   onMentionClick,
 }: {
   msg: Message;
+  /** Ids of every per-recipient row this bubble collapses (for referencing). */
+  ids?: number[];
   /** Called with a bare alias when an @mention in the body is clicked. */
   onMentionClick?: (alias: string) => void;
 }) {
+  const idText = idLabel(ids);
   const [expanded, setExpanded] = useState(false);
   const from = msg.from_alias ?? msg.from_agent;
   const style = senderStyle(from);
@@ -55,6 +66,14 @@ export function MessageBubble({
             {msg.type}
           </span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-zinc-600">
+            {idText && (
+              <span
+                className="select-all font-mono text-zinc-500"
+                title={ids && ids.length > 1 ? `Message ids: ${ids.join(", ")}` : undefined}
+              >
+                {idText}
+              </span>
+            )}
             {ts}
             <StatusCheck status={msg.status} />
           </span>
