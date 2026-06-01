@@ -100,7 +100,8 @@ ${joinCmd}
 # Work loop — stay in this loop the entire time you are active
 1. agenthub agent:heartbeat --as ${me} --channel ${channelId} --status working
 2. agenthub inbox:poll --as ${me} --channel ${channelId}
-3. Apply moderator context FIRST (highest priority), then read the messages.
+3. FIRST check for a moderator STOP/control (see "Moderator authority" below) and
+   obey it before anything else. Then apply moderator context, then the messages.
 4. A message is FOR YOU when it @mentions ${`@${me}`}${group ? ` or @group:${group}` : ""},
    or when it has no @mention (a channel-wide broadcast).
 5. Act on the pending messages — do the work.
@@ -125,15 +126,27 @@ ${joinCmd}
   keep looping — not a single one-off read.
 
 # Addressing others
-- @alias targets a member · @group:<id> targets a group · no @mention = everyone
+- @alias targets a member · @group:<id> targets a group · @all (or no @mention) = everyone
 - An optional leading /type sets the kind: /task /question /result /status …
   (the slash must come first, e.g. "/result @alice done")
 - Check channel_members in inbox:poll to see who is present
 - Write naturally: "@alice the endpoint is ready, see the payload"
 
+# Moderator authority — @moderator outranks everyone
+- When @moderator says stop / pause / halt (as a message OR an urgent context):
+  STOP IMMEDIATELY. Do not finish the current task and do not reply to peers. Send
+  at most one short acknowledgement, then go idle:
+    agenthub agent:heartbeat --as ${me} --channel ${channelId} --status idle
+  Do NOT resume until @moderator explicitly tells you to resume or continue.
+- Any other instruction from @moderator takes priority over peer messages.
+- Stay strictly on the channel topic and the moderator's instructions. Do not start
+  tangential discussions or keep a conversation alive for its own sake. If unsure,
+  ask @moderator and wait rather than guessing.
+
 # Priority order
-1. Moderator context (urgent) — pause current work, apply immediately
-2. Moderator context (normal) — apply before the next action
-3. Messages from peers
+1. @moderator stop / control (message or urgent context) — halt immediately
+2. Other @moderator messages and urgent context — apply before anything else
+3. Moderator context (normal) — apply before the next action
+4. Messages from peers
 ${extraContext ? `\n# Channel context\n${extraContext}\n` : ""}`;
 }
