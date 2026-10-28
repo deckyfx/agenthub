@@ -1,378 +1,150 @@
-import type { AgentStatus } from "./stores/agent-store";
-import type { MessageType } from "./stores/message-store";
+import { parseArgs } from "node:util";
+import { PERMISSION_MODES, type PermissionMode } from "./core/permission-modes";
+import { ValidationError } from "./errors/custom-errors";
 
-// ─── Result Types ──────────────────────────────────────────────────────────────
+// ─── Result type ─────────────────────────────────────────────────────────────
 
 export type CliResult =
-  | { type: "server"; port?: number }
-  | { type: "init"; dbPath?: string }
-  | { type: "agent:register"; id: string; dir: string; name: string }
-  | { type: "agent:heartbeat"; alias: string; channel: string; status: AgentStatus; note?: string }
-  | { type: "agent:tick"; alias: string; channel: string; status?: AgentStatus; note?: string; membersVersion?: string }
-  | { type: "group:create"; id: string; name: string; description?: string }
-  | { type: "group:add"; group: string; agent: string }
-  | { type: "group:members"; group: string }
-  | { type: "channel:create"; id: string; topic: string; by: string }
-  | { type: "channel:join"; agent?: string; channel: string; alias: string; role?: string; group?: string }
-  | { type: "channel:leave"; agent: string; channel: string }
-  | { type: "channel:list"; agent: string }
-  | { type: "channel:members"; channel: string }
-  | { type: "channel:summary"; channel: string; set?: string }
-  | { type: "prompt"; channel: string; alias: string }
-  | { type: "inbox:poll"; alias: string; channel: string }
-  | { type: "inbox:wait"; alias: string; channel: string; timeout: number }
-  | {
-      type: "message:send";
-      from?: string;
-      channel: string;
-      to?: string;
-      msgType?: MessageType;
-      payload: string;
-    }
-  | { type: "message:done"; id: number; agent: string }
-  | {
-      type: "context:inject";
-      content: string;
-      channel?: string;
-      to?: string;
-      toGroup?: string;
-      priority: "normal" | "urgent";
-    }
-  | { type: "context:applied"; id: number; agent: string }
   | { type: "help" }
   | { type: "version" }
-  | { type: "error"; message: string };
-
-// ─── Argument Parser ──────────────────────────────────────────────────────────
-
-/** Parse Bun.argv into a typed CliResult */
-export function parseCli(): CliResult {
-  const args = Bun.argv.slice(2); // skip bun + script path
-  const cmd = args[0];
-
-  if (!cmd || cmd === "--help" || cmd === "-h" || cmd === "help") {
-    return { type: "help" };
-  }
-
-  if (cmd === "-v" || cmd === "--version" || cmd === "version") {
-    return { type: "version" };
-  }
-
-  // Build a simple flag map from remaining args
-  const flags = parseFlags(args.slice(1));
-
-  // Identity synonyms: an agent's identity is its alias. Let --as / --alias
-  // stand in for --agent / --id on the commands that identify the caller, so
-  // the agent only ever passes one token. (channel:join keeps --alias for the
-  // alias itself and only borrows --as for the optional explicit id.)
-  if (cmd !== "channel:join") {
-    const identity = flags["agent"] ?? flags["as"] ?? flags["alias"];
-    if (identity !== undefined) {
-      flags["agent"] ??= identity;
-      flags["id"] ??= identity;
+  | { type: "server"; port?: number }
+  | { type: "tui" }
+  | { type: "ls"; json: boolean }
+  | { type: "send"; session: string; body: string }
+  | {
+      type: "spawn";
+      cwd: string;
+      name: string;
+      prompt?: string;
+      permissionMode?: PermissionMode;
+      model?: string;
+      roomId?: string;
     }
-  }
+  | { type: "rooms" }
+  | { type: "room:create"; name: string; topic?: string; context?: string }
+  | { type: "room:add"; roomId: string; session: string; alias?: string }
+  | { type: "room:post"; roomId: string; body: string };
 
-  try {
-    if (cmd === "server") {
-      return {
-        type: "server",
-        port: flags["port"] ? parseInt(flags["port"], 10) : undefined,
-      };
-    }
+// ─── Usage ───────────────────────────────────────────────────────────────────
 
-    switch (cmd) {
-      case "init":
-        return { type: "init", dbPath: flags["db"] };
-
-      case "agent:register":
-        requireFlags(flags, ["id", "dir", "name"]);
-        return {
-          type: "agent:register",
-          id: flags["id"]!,
-          dir: flags["dir"]!,
-          name: flags["name"]!,
-        };
-
-      case "agent:heartbeat":
-        // Identity is channel-scoped: --as/--alias gives the alias, plus --channel.
-        requireFlags(flags, ["agent", "channel", "status"]);
-        return {
-          type: "agent:heartbeat",
-          alias: flags["agent"]!,
-          channel: flags["channel"]!,
-          status: flags["status"] as AgentStatus,
-          note: flags["note"],
-        };
-
-      case "group:create":
-        requireFlags(flags, ["id", "name"]);
-        return {
-          type: "group:create",
-          id: flags["id"]!,
-          name: flags["name"]!,
-          description: flags["description"],
-        };
-
-      case "group:add":
-        requireFlags(flags, ["group", "agent"]);
-        return {
-          type: "group:add",
-          group: flags["group"]!,
-          agent: flags["agent"]!,
-        };
-
-      case "group:members":
-        requireFlags(flags, ["group"]);
-        return { type: "group:members", group: flags["group"]! };
-
-      case "channel:create":
-        requireFlags(flags, ["id", "topic"]);
-        return {
-          type: "channel:create",
-          id: flags["id"]!,
-          topic: flags["topic"]!,
-          by: flags["by"] ?? "moderator",
-        };
-
-      case "channel:join":
-        // --agent is optional; identity defaults to --alias.
-        requireFlags(flags, ["channel", "alias"]);
-        return {
-          type: "channel:join",
-          agent: flags["agent"] ?? flags["as"],
-          channel: flags["channel"]!,
-          alias: flags["alias"]!,
-          role: flags["role"],
-          group: flags["group"],
-        };
-
-      case "channel:leave":
-        requireFlags(flags, ["agent", "channel"]);
-        return {
-          type: "channel:leave",
-          agent: flags["agent"]!,
-          channel: flags["channel"]!,
-        };
-
-      case "channel:list":
-        requireFlags(flags, ["agent"]);
-        return { type: "channel:list", agent: flags["agent"]! };
-
-      case "channel:members":
-        requireFlags(flags, ["channel"]);
-        return { type: "channel:members", channel: flags["channel"]! };
-
-      case "channel:summary":
-        // No --set → print the current summary; --set "<text>" → update it.
-        requireFlags(flags, ["channel"]);
-        return { type: "channel:summary", channel: flags["channel"]!, set: flags["set"] };
-
-      case "prompt":
-        // Print a member's join prompt. Identity is the alias within a channel.
-        requireFlags(flags, ["channel", "alias"]);
-        return { type: "prompt", channel: flags["channel"]!, alias: flags["alias"]! };
-
-      case "agent:tick":
-        // heartbeat + poll in one call; status defaults to "working".
-        requireFlags(flags, ["agent", "channel"]);
-        return {
-          type: "agent:tick",
-          alias: flags["agent"]!,
-          channel: flags["channel"]!,
-          status: flags["status"] as AgentStatus | undefined,
-          note: flags["note"],
-          membersVersion: flags["members-version"],
-        };
-
-      case "inbox:poll":
-        requireFlags(flags, ["agent", "channel"]);
-        return { type: "inbox:poll", alias: flags["agent"]!, channel: flags["channel"]! };
-
-      case "inbox:wait":
-        requireFlags(flags, ["agent", "channel"]);
-        return {
-          type: "inbox:wait",
-          alias: flags["agent"]!,
-          channel: flags["channel"]!,
-          timeout: flags["timeout"] ? parseInt(flags["timeout"], 10) : 30,
-        };
-
-      case "message:send":
-        // Only channel + payload are required. Sender defaults to "moderator";
-        // recipients and type come from @mentions / a leading /type in the body.
-        requireFlags(flags, ["channel", "payload"]);
-        return {
-          type: "message:send",
-          from: flags["from"] ?? flags["as"],
-          channel: flags["channel"]!,
-          to: flags["to"],
-          msgType: flags["type"] as MessageType | undefined,
-          payload: flags["payload"]!,
-        };
-
-      case "message:done":
-        requireFlags(flags, ["id", "agent"]);
-        return {
-          type: "message:done",
-          id: parseInt(flags["id"]!, 10),
-          agent: flags["agent"]!,
-        };
-
-      case "context:inject":
-        requireFlags(flags, ["content"]);
-        return {
-          type: "context:inject",
-          content: flags["content"]!,
-          channel: flags["channel"],
-          to: flags["to"],
-          toGroup: flags["to-group"],
-          priority: (flags["priority"] as "normal" | "urgent") ?? "normal",
-        };
-
-      case "context:applied":
-        requireFlags(flags, ["id", "agent"]);
-        return {
-          type: "context:applied",
-          id: parseInt(flags["id"]!, 10),
-          agent: flags["agent"]!,
-        };
-
-      default:
-        return { type: "error", message: `Unknown command: ${cmd}` };
-    }
-  } catch (err) {
-    return {
-      type: "error",
-      message: err instanceof Error ? err.message : String(err),
-    };
-  }
+/** ANSI colour helper — no-ops when stdout is not a TTY. */
+function color(cssColor: string): string {
+  if (!process.stdout.isTTY) return "";
+  return Bun.color(cssColor, "ansi") ?? "";
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Parse --key value pairs from argv slice.
- * Supports: --key value, --key=value
- */
-function parseFlags(argv: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  let i = 0;
-
-  while (i < argv.length) {
-    const arg = argv[i];
-    if (!arg) { i++; continue; }
-
-    if (arg.startsWith("--")) {
-      const eqIdx = arg.indexOf("=");
-      if (eqIdx !== -1) {
-        const key = arg.slice(2, eqIdx);
-        const val = arg.slice(eqIdx + 1);
-        result[key] = val;
-      } else {
-        const key = arg.slice(2);
-        const next = argv[i + 1];
-        if (next && !next.startsWith("--")) {
-          result[key] = next;
-          i++;
-        } else {
-          result[key] = "true";
-        }
-      }
-    }
-    i++;
-  }
-
-  return result;
-}
-
-/** Throw if any required flags are missing */
-function requireFlags(flags: Record<string, string | undefined>, required: string[]): void {
-  const missing = required.filter((k) => !flags[k]);
-  if (missing.length > 0) {
-    throw new Error(`Missing required flags: ${missing.map((f) => `--${f}`).join(", ")}`);
-  }
-}
-
-// ─── Usage ────────────────────────────────────────────────────────────────────
+const RESET = process.stdout.isTTY ? "\x1b[0m" : "";
+const BOLD = process.stdout.isTTY ? "\x1b[1m" : "";
 
 export function printUsage(): void {
-  const bold = process.stdout.isTTY ? "\x1b[1m" : "";
-  const cyan = process.stdout.isTTY ? (Bun.color("cyan", "ansi") ?? "") : "";
-  const reset = process.stdout.isTTY ? "\x1b[0m" : "";
-
+  const cyan = color("cyan");
+  const gray = color("gray");
   console.log(`
-${bold}agenthub${reset} — Multi-agent Claude CLI orchestration hub
+${BOLD}agenthub${RESET} — relay hub & command center for live Claude Code sessions
 
-${bold}Usage:${reset}
-  ${cyan}agenthub <command> [--flags]${reset}
-  ${cyan}agenthub --version${reset}                  Print the embedded version (-v)
+${BOLD}Usage:${RESET}
+  ${cyan}agenthub server${RESET} [--port N]          Start the hub + web dashboard
+  ${cyan}agenthub tui${RESET}                        Terminal dashboard (starts the server if needed)
+  ${cyan}agenthub ls${RESET} [--json]                List live Claude Code sessions
+  ${cyan}agenthub send${RESET} <session> <message>   Message a session (pid, name, or session id)
+  ${cyan}agenthub spawn${RESET} --cwd <dir> --name <name> [--prompt <text>]
+                 [--mode <${PERMISSION_MODES.join("|")}>]
+                 [--model <model>] [--room <room>]
+                                      Start a background Claude session (claude --bg)
+  ${cyan}agenthub rooms${RESET}                      List rooms
+  ${cyan}agenthub room:create${RESET} <name> [--topic <t>] [--context <c>]
+  ${cyan}agenthub room:add${RESET} <room> <session> [--alias <a>]
+  ${cyan}agenthub room:post${RESET} <room> <message>
+  ${cyan}agenthub --version${RESET} | ${cyan}--help${RESET}
 
-${bold}Commands:${reset}
-  ${cyan}server${reset}                             Start dashboard + API server
-    [--port <number>]                   HTTP port (default: 3000)
+${BOLD}Examples:${RESET}
+  ${gray}# Ask the session named "api" for a status update${RESET}
+  agenthub send api "What's left on the migration?"
 
-  ${cyan}init${reset}                               Initialize hub database
-    --db <path>                         Database path (default: ./data/hub.db)
-
-  ${cyan}agent:register${reset}                     Register an agent
-    --id <id> --dir <path> --name <name>
-
-  ${cyan}agent:heartbeat${reset}                    Send heartbeat + status
-    --as <alias> --channel <id> --status <idle|working|waiting|blocked|done>
-    [--note "<short reason, e.g. blocked on @bob>"]
-
-  ${cyan}group:create${reset}                       Create a project group
-    --id <id> --name <name> [--description <desc>]
-
-  ${cyan}group:add${reset}                          Add agent to group
-    --group <id> --agent <id>
-
-  ${cyan}group:members${reset}                      List group members
-    --group <id>
-
-  ${cyan}channel:create${reset}                     Create a channel
-    --id <id> --topic <topic> [--by <agent>]
-
-  ${cyan}channel:join${reset}                       Subscribe to channel with alias (auto-registers)
-    --channel <id> --alias <name> [--role <desc>] [--group <id>] [--as <id>]
-
-  ${cyan}channel:leave${reset}                      Unsubscribe from channel
-    --agent <id> --channel <id>
-
-  ${cyan}channel:list${reset}                       List agent's subscriptions
-    --agent <id>
-
-  ${cyan}channel:members${reset}                    List channel members
-    --channel <id>
-
-  ${cyan}channel:summary${reset}                    Get or set the channel's rolling summary
-    --channel <id> [--set "<digest text>"]
-
-  ${cyan}prompt${reset}                             Print a member's join prompt (execute & follow it)
-    --channel <id> --alias <name>
-
-  ${cyan}agent:tick${reset}                         Heartbeat + poll in one call (token-lean loop)
-    --as <alias> --channel <id> [--status <…>] [--note "<…>"] [--members-version <v>]
-
-  ${cyan}inbox:poll${reset}                         Poll for new messages + context (channel-scoped)
-    --as <alias> --channel <id>
-
-  ${cyan}inbox:wait${reset}                         Block until message arrives (channel-scoped)
-    --as <alias> --channel <id> [--timeout <seconds>]
-
-  ${cyan}message:send${reset}                       Send a message (recipients & type parsed from body)
-    --channel <id> --payload '<text with @alias / @group:id and optional /type>'
-    [--as <alias>]  (sender, default: moderator)  [--to <alias>]  [--type <type>]
-
-  ${cyan}message:done${reset}                       Mark message as done
-    --id <id> --agent <id>
-
-  ${cyan}context:inject${reset}                     Inject moderator context
-    --content <text> [--channel <id>] [--to <id|@alias>] [--to-group <id>]
-    [--priority normal|urgent]
-
-  ${cyan}context:applied${reset}                    Mark context as applied
-    --id <id> --agent <id>
+  ${gray}# Spin up a helper in another repo and drop it into a room${RESET}
+  agenthub spawn --cwd ~/code/web --name web-helper --room checkout --prompt "Read the room briefing and wait."
 `);
+}
+
+// ─── Parser ──────────────────────────────────────────────────────────────────
+
+/** Expand a leading `~/` (shells don't expand it inside `--cwd=~/x`). */
+function expandHome(p: string): string {
+  return p.startsWith("~/") ? `${Bun.env.HOME ?? ""}${p.slice(1)}` : p;
+}
+
+function need(value: string | undefined, what: string): string {
+  if (!value) ValidationError.throw(`Missing ${what}. Run 'agenthub --help'.`, what);
+  return value;
+}
+
+/**
+ * Parse argv into a typed {@link CliResult}.
+ *
+ * @throws ValidationError on missing or invalid arguments.
+ */
+export function parseCli(argv: string[] = Bun.argv.slice(2)): CliResult {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    strict: true,
+    options: {
+      help: { type: "boolean", short: "h" },
+      version: { type: "boolean", short: "v" },
+      json: { type: "boolean" },
+      port: { type: "string" },
+      cwd: { type: "string" },
+      name: { type: "string" },
+      prompt: { type: "string" },
+      mode: { type: "string" },
+      model: { type: "string" },
+      room: { type: "string" },
+      topic: { type: "string" },
+      context: { type: "string" },
+      alias: { type: "string" },
+    },
+  });
+
+  if (values.version) return { type: "version" };
+  const [command, ...rest] = positionals;
+  if (values.help || !command) return { type: "help" };
+
+  switch (command) {
+    case "server": {
+      const port = values.port ? Number(values.port) : undefined;
+      if (port !== undefined && !Number.isInteger(port)) ValidationError.throw("--port must be a number", "port");
+      return { type: "server", port };
+    }
+    case "tui":
+      return { type: "tui" };
+    case "ls":
+      return { type: "ls", json: values.json === true || !process.stdout.isTTY };
+    case "send":
+      return { type: "send", session: need(rest[0], "<session>"), body: need(rest.slice(1).join(" "), "<message>") };
+    case "spawn": {
+      const mode = values.mode;
+      if (mode !== undefined && !(PERMISSION_MODES as readonly string[]).includes(mode)) {
+        ValidationError.throw(`--mode must be one of: ${PERMISSION_MODES.join(", ")}`, "mode");
+      }
+      return {
+        type: "spawn",
+        cwd: expandHome(values.cwd ?? process.cwd()),
+        name: need(values.name, "--name"),
+        prompt: values.prompt,
+        permissionMode: mode as PermissionMode | undefined,
+        model: values.model,
+        roomId: values.room,
+      };
+    }
+    case "rooms":
+      return { type: "rooms" };
+    case "room:create":
+      return { type: "room:create", name: need(rest.join(" "), "<name>"), topic: values.topic, context: values.context };
+    case "room:add":
+      return { type: "room:add", roomId: need(rest[0], "<room>"), session: need(rest[1], "<session>"), alias: values.alias };
+    case "room:post":
+      return { type: "room:post", roomId: need(rest[0], "<room>"), body: need(rest.slice(1).join(" "), "<message>") };
+    default:
+      return ValidationError.throw(`Unknown command '${command}'. Run 'agenthub --help'.`, "command");
+  }
 }

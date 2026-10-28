@@ -14,15 +14,7 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
-    "noEmit": true,
-    "paths": {
-      "@db/*": ["./src/db/*"],
-      "@stores/*": ["./src/stores/*"],
-      "@commands/*": ["./src/commands/*"],
-      "@errors/*": ["./src/errors/*"],
-      "@lib/*": ["./src/lib/*"],
-      "@server/*": ["./src/server/*"]
-    }
+    "noEmit": true
   },
-  "include": ["src/**/*", "drizzle.config.ts", "build.ts"]
+  "include": ["src/**/*", "drizzle.config.ts"]
 }

@@ -32,3 +32,15 @@ export function catchError<T>(
       error instanceof Error ? error : new Error(String(error)),
     ]);
 }
+
+/**
+ * Synchronous variant of {@link catchError} for throwing sync APIs
+ * (JSON.parse, process.kill, …).
+ */
+export function catchSync<T>(fn: () => T): [undefined, T] | [Error] {
+  try {
+    return [undefined, fn()];
+  } catch (error: unknown) {
+    return [error instanceof Error ? error : new Error(String(error))];
+  }
+}

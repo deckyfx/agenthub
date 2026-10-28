@@ -1,160 +1,86 @@
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 import { db } from "../db";
-import { messages, agentChannels } from "../db/schema";
-import type { Message, NewMessage } from "../db/schema";
+import { deliveries, messages, type Delivery, type DeliveryStatus, type Message, type SenderKind } from "../db/schema";
 
-// Re-export the message-type vocabulary from the shared parser so existing
-// imports (`import type { MessageType } from "../stores/message-store"`) keep working.
-export type { MessageType } from "../lib/message-parse";
-
-/**
- * Repository for message operations.
- *
- * Routing is alias based: recipients are resolved at send time (broadcasts and
- * groups are expanded to one row per member), so `messages.to_alias` always
- * holds the concrete recipient alias and matching here is a simple equality.
- */
-export class MessageStore {
-  /** Insert a message row. */
-  static async send(data: NewMessage): Promise<Message> {
-    const result = await db.insert(messages).values(data).returning();
-    const msg = result[0];
-    if (!msg) throw new Error("Failed to send message");
-    return msg;
-  }
-
-  /** Find a message by its numeric id. */
-  static async findById(id: number): Promise<Message | null> {
-    const result = await db
-      .select()
-      .from(messages)
-      .where(eq(messages.id, id))
-      .limit(1);
-    return result[0] ?? null;
-  }
-
-  /**
-   * Poll pending messages addressed to an alias *within a single channel*.
-   *
-   * Identity is channel-scoped: the same alias in two channels is two different
-   * agents, so polling is always bounded to one channel and never bleeds across.
-   *
-   * @param channelId - The channel being polled.
-   * @param alias - The polling agent's channel alias.
-   */
-  static async pollForChannelAlias(channelId: string, alias: string): Promise<Message[]> {
-    return db
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.channel_id, channelId),
-          eq(messages.status, "pending"),
-          eq(messages.to_alias, alias),
-        ),
-      )
-      .orderBy(messages.created_at);
-  }
-
-  /** Mark a message as read (sets status + read_at). */
-  static async markRead(id: number): Promise<void> {
-    await db
-      .update(messages)
-      .set({ status: "read", read_at: Math.floor(Date.now() / 1000) })
-      .where(eq(messages.id, id));
-  }
-
-  /** Mark a message as done (sets status + done_at). */
-  static async markDone(id: number): Promise<void> {
-    await db
-      .update(messages)
-      .set({ status: "done", done_at: Math.floor(Date.now() / 1000) })
-      .where(eq(messages.id, id));
-  }
-
-  /**
-   * Acknowledge the messages an observer (the dashboard "moderator") sees in a
-   * channel feed, flipping them `pending` → `read`.
-   *
-   * The moderator never runs `inbox:poll`, so messages addressed to it — and
-   * broadcast/feed rows with no concrete recipient (`to_alias IS NULL`) — would
-   * otherwise stay `pending` forever. Messages addressed to a real agent are left
-   * untouched so that agent still picks them up via its own poll.
-   *
-   * @param channelId - Channel being viewed.
-   * @param observer - The observer alias (the dashboard sender, e.g. "moderator").
-   */
-  static async markChannelReadForObserver(
-    channelId: string,
-    observer: string,
-  ): Promise<void> {
-    await db
-      .update(messages)
-      .set({ status: "read", read_at: Math.floor(Date.now() / 1000) })
-      .where(
-        and(
-          eq(messages.channel_id, channelId),
-          eq(messages.status, "pending"),
-          or(eq(messages.to_alias, observer), isNull(messages.to_alias)),
-        ),
-      );
-  }
-
-  /** Get every message in a channel (dashboard feed). */
-  static async findByChannel(channelId: string): Promise<Message[]> {
-    return db
-      .select()
-      .from(messages)
-      .where(eq(messages.channel_id, channelId))
-      .orderBy(messages.created_at);
-  }
-
-  /** Get every message an agent sent or received, across channels (dashboard). */
-  static async findByAgent(alias: string): Promise<Message[]> {
-    const channelIds = await subscribedChannelIds(alias);
-    if (channelIds.length === 0) return [];
-
-    return db
-      .select()
-      .from(messages)
-      .where(
-        and(
-          inArray(messages.channel_id, channelIds),
-          or(eq(messages.from_alias, alias), eq(messages.to_alias, alias)),
-        ),
-      )
-      .orderBy(messages.created_at);
-  }
-
-  /**
-   * Whether any pending message waits for an alias in a channel. Backs
-   * `inbox:wait`. Channel-scoped, mirroring {@link pollForChannelAlias}.
-   *
-   * @param channelId - The channel being waited on.
-   * @param alias - The waiting agent's channel alias.
-   */
-  static async hasPendingForChannelAlias(channelId: string, alias: string): Promise<boolean> {
-    const result = await db
-      .select({ id: messages.id })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.channel_id, channelId),
-          eq(messages.status, "pending"),
-          eq(messages.to_alias, alias),
-        ),
-      )
-      .limit(1);
-
-    return result.length > 0;
-  }
+/** A message plus its per-recipient delivery state. */
+export interface MessageWithDeliveries extends Message {
+  deliveries: Delivery[];
 }
 
-/** Channel ids the agent (by alias = agent id) is subscribed to. */
-async function subscribedChannelIds(alias: string): Promise<string[]> {
-  const subs = await db
-    .select({ channel_id: agentChannels.channel_id })
-    .from(agentChannels)
-    .where(eq(agentChannels.agent_id, alias));
-  return subs.map((s) => s.channel_id);
+/** Repository for message history and fan-out delivery bookkeeping. */
+export class MessageStore {
+  /** Insert a message and a `pending` delivery row per recipient, atomically. */
+  static create(input: {
+    roomId: string | null;
+    sessionId: string | null;
+    senderKind: SenderKind;
+    senderLabel: string;
+    body: string;
+    recipients: string[];
+  }): MessageWithDeliveries {
+    return db.transaction((tx) => {
+      const { recipients, ...row } = input;
+      const message = tx.insert(messages).values(row).returning().get();
+      const rows =
+        recipients.length > 0
+          ? tx
+              .insert(deliveries)
+              .values(recipients.map((sessionId) => ({ messageId: message.id, sessionId })))
+              .returning()
+              .all()
+          : [];
+      return { ...message, deliveries: rows };
+    });
+  }
+
+  static setDelivery(messageId: number, sessionId: string, status: DeliveryStatus, error?: string): void {
+    db.update(deliveries)
+      .set({ status, error: error ?? null, updatedAt: Date.now() })
+      .where(and(eq(deliveries.messageId, messageId), eq(deliveries.sessionId, sessionId)))
+      .run();
+  }
+
+  static get(id: number): MessageWithDeliveries | undefined {
+    const message = db.select().from(messages).where(eq(messages.id, id)).get();
+    if (!message) return undefined;
+    return { ...message, deliveries: db.select().from(deliveries).where(eq(deliveries.messageId, id)).all() };
+  }
+
+  /** Attach delivery rows to a page of messages. */
+  private static withDeliveries(page: Message[]): MessageWithDeliveries[] {
+    if (page.length === 0) return [];
+    const rows = db
+      .select()
+      .from(deliveries)
+      .where(inArray(deliveries.messageId, page.map((m) => m.id)))
+      .all();
+    return page.map((m) => ({ ...m, deliveries: rows.filter((d) => d.messageId === m.id) }));
+  }
+
+  /** Latest messages of a room, oldest first. `before` pages backwards by id. */
+  static forRoom(roomId: string, limit = 200, before?: number): MessageWithDeliveries[] {
+    const where = before ? and(eq(messages.roomId, roomId), lt(messages.id, before)) : eq(messages.roomId, roomId);
+    const page = db.select().from(messages).where(where).orderBy(desc(messages.id)).limit(limit).all();
+    return this.withDeliveries(page.reverse());
+  }
+
+  /** Direct (non-room) thread with one session, oldest first. */
+  static forDirect(sessionId: string, limit = 200, before?: number): MessageWithDeliveries[] {
+    const base = and(isNull(messages.roomId), eq(messages.sessionId, sessionId));
+    const where = before ? and(base, lt(messages.id, before)) : base;
+    const page = db.select().from(messages).where(where).orderBy(desc(messages.id)).limit(limit).all();
+    return this.withDeliveries(page.reverse());
+  }
+
+  /** Messages still waiting for `sessionId` to come online, oldest first. */
+  static pendingFor(sessionId: string): Message[] {
+    return db
+      .select({ message: messages })
+      .from(deliveries)
+      .innerJoin(messages, eq(messages.id, deliveries.messageId))
+      .where(and(eq(deliveries.sessionId, sessionId), eq(deliveries.status, "pending")))
+      .orderBy(asc(messages.id))
+      .all()
+      .map((r) => r.message);
+  }
 }

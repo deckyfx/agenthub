@@ -1,173 +1,86 @@
 # AgentHub — Codebase Guide
 
-Multi-agent Claude CLI orchestration hub. Single Bun project with a CLI tool and embedded Elysia dashboard.
+Relay hub and command center for **live Claude Code sessions**. It discovers sessions from Claude Code's own registry, messages them over their own peer sockets, groups them into rooms across repos, and spawns new background sessions. It ships as a web dashboard, a TUI and a CLI in one Bun project.
+
+There is no agent-side install. Agents reply using Claude Code's built-in SendMessage.
 
 ## Stack
 
-- **Runtime**: Bun (native SQLite, native file ops)
-- **Server**: Elysia v1 + Eden Treaty (type-safe client)
-- **DB**: Drizzle ORM + SQLite (bun:sqlite)
-- **Frontend**: React 19 + Tailwind CSS v4 (via bun-plugin-tailwind)
-- **TypeScript**: strict, no `any`, TSDoc on all public APIs
+- **Runtime**: Bun ≥ 1.4 (bun:sqlite, Bun.listen/connect for Unix sockets)
+- **Server**: Elysia 1.4 + Eden Treaty (REST + `/api/ws` push)
+- **DB**: Drizzle ORM + SQLite (history only; sessions are never stored)
+- **Web**: React 19 + Tailwind v4 (bun-plugin-tailwind), zustand
+- **TUI**: Ink 8 (React), with the same zustand store as the web
+- **TypeScript**: strict, no `any`, TSDoc on public APIs. Type-check with `bun check`.
 
-## Project Layout
+## Layout
 
 ```
 src/
-├── index.ts              # CLI entry point — dispatches all commands
-├── cli-parser.ts         # Typed arg parser → CliResult union
-├── env-config.ts         # Singleton env config (HUB_DB_PATH, SERVER_PORT)
-├── version.ts            # VERSION/NAME embedded from package.json (inlined at compile time)
-├── db/
-│   ├── schema.ts         # 7 Drizzle tables (agents, channels, agent_groups, agent_group_members, agent_channels, messages, context)
-│   ├── index.ts          # SQLite connection (WAL mode, FK on)
-│   ├── migration-manager.ts
-│   └── migrate.ts        # CLI runner: bun run db:migrate
-├── stores/               # Repository pattern — one static class per table
-│   ├── agent-store.ts
-│   ├── channel-store.ts  # incl. resolveAlias(alias, channel) → agent_id
-│   ├── group-store.ts
-│   ├── message-store.ts  # pollForChannelAlias / hasPendingForChannelAlias (channel-scoped)
-│   └── context-store.ts  # pollForChannelAgent (channel-scoped)
-├── commands/             # One file per CLI command group
-│   ├── server.ts         # agenthub server
-│   ├── agent.ts          # agenthub agent:*
-│   ├── channel.ts        # agenthub channel:*
-│   ├── group.ts          # agenthub group:*
-│   ├── inbox.ts          # agenthub inbox:*
-│   ├── message.ts        # agenthub message:*
-│   ├── context.ts        # agenthub context:*
-│   ├── prompt.ts         # agenthub prompt — reconstruct a member's join prompt
-│   └── init.ts           # agenthub init
-├── errors/
-│   └── custom-errors.ts  # Typed error classes (AgentHubError subclasses)
-├── lib/
-│   └── error-handler.ts  # catchError / catchErrorTyped (Go-style)
-└── server/
-    ├── index.ts          # createServer() / startServer() (startup banner)
-    ├── agent-prompt.ts   # buildAgentPrompt() — single source of truth for the join prompt
-    ├── plugins/
-    │   ├── routeApi.ts   # All REST endpoints (Elysia plugin, prefix /api)
-    │   └── routeApp.ts   # React SPA wildcard routes
-    └── public/
-        ├── index.html    # HTML entry (imports styles.css; pre-paint theme script)
-        ├── styles.css    # @import "tailwindcss" + themes (data-accent/data-mode) + scrollbar
-        ├── index.tsx     # App shell: sidebar (nav + channel members rail) + theme switcher
-        ├── lib/
-        │   ├── api.ts       # Eden Treaty client (window.location.origin)
-        │   ├── store.ts     # zustand hub store (single poller; no data useEffects)
-        │   ├── theme.ts     # accent + mode registry / persistence
-        │   └── mentions.tsx # parse + render @mentions (composer + feed)
-        ├── components/
-        │   ├── ui.tsx          # Dialog (portaled to body), Button, inputs, sender palette
-        │   ├── ThemeSwitcher.tsx
-        │   ├── channel/        # MembersPanel, InviteDialog, AgentPromptDialog, PromptView,
-        │   │                   #   PromptTldr, ContextDialog, Composer, MessageBubble
-        │   └── overview/       # ChannelCard, NewChannelDialog
-        └── pages/
-            ├── OverviewPage.tsx  # Channel cards grid
-            └── ChannelPage.tsx   # Message feed (members live in the rail; context in a dialog)
+├── index.ts              # CLI entry → dispatch()
+├── cli-parser.ts         # argv → CliResult union (node:util parseArgs)
+├── env-config.ts         # typed env singleton
+├── build.ts              # single-binary build (stubs Ink's react-devtools-core)
+├── test-setup.ts         # bun test preload: isolates every path under /tmp/ah-test-<pid>
+├── core/
+│   ├── peer-protocol.ts  # ★ ONLY file that knows Claude Code's wire format
+│   ├── sessions.ts       # SessionRegistry: watch ~/.claude/sessions, pid liveness, resolve()
+│   ├── peer-client.ts    # sendToSession(): auth line + user frame → session socket
+│   ├── hub-inbox.ts      # hub's own socket; emits parsed inbound frames
+│   ├── hub.ts            # Hub: routing, rooms, fan-out, queueing, burst guard, spawn
+│   ├── transcript.ts     # ★ live chat: parse/tail ~/.claude/projects/<cwd>/<sid>.jsonl + subagents
+│   ├── chat-key.ts       # browser-safe chat key (session or session/agentId)
+│   ├── spawner.ts        # claude --bg / claude stop
+│   └── permission-modes.ts # browser-safe constants
+├── db/                   # schema (rooms, room_members, messages, deliveries), migrate, embed-migrations
+├── stores/               # RoomStore, MessageStore (repository pattern)
+├── lib/                  # error-handler (Go-style), emitter, fs.isSocket, client (Eden, terminal), hub-store (shared zustand)
+├── server/               # createServer/startServer, plugins/{guard,routeApi,routeApp}
+├── web/                  # React SPA (index.html, App.tsx, pages/, components/, lib/)
+├── tui/                  # Ink app (App.tsx, commands.ts slash commands)
+└── commands/             # CLI handlers (sessions, spawn, rooms)
 ```
 
-## Core Design: Channels as the Unit of Work
+## Claude Code peer protocol (as of 2.1.31x)
 
-A **channel** is the primary unit of work and collaboration. Each channel represents a single topic, feature, or discussion thread. There are no separate task objects — agents coordinate entirely through messages within channels.
+Everything below lives in `core/peer-protocol.ts`. If delivery breaks after a Claude Code update, re-derive it from the Claude Code bundle (`strings` on the binary, then search for `uds-messaging` / `cross-session-message`).
 
-Typical workflow:
-1. **Create a channel** with a descriptive topic (`channel:create`)
-2. **Add context** to the channel so agents have background (`context:inject`)
-3. **Invite agents** by having them join with aliases and group (`channel:join --group` auto-creates the group)
-4. **Agents discuss** by sending and receiving messages (`message:send`, `inbox:poll`)
+- **Registry**: `~/.claude/sessions/<pid>.json` has `{pid, sessionId, cwd, name, status: busy|idle, kind, entrypoint, version, peerProtocol, messagingSocketPath, jobId?}`. The token is in `<pid>.<sha256(socketPath)>.key` → `{peerToken}`.
+- **Send**: one connection per message, NDJSON. An optional `{"type":"auth","token"}` line (enforced only on Windows), then `{"msgV":1,"msg_id":uuid,"type":"user","priority":"next","from":"uds:<path>","message":{"role":"user","content":<envelope>}}`.
+- **Envelope**: `<cross-session-message from="…" from-name="…">\n body \n</cross-session-message>`. Attribute order matters.
+- **Reply targets**: a receiver accepts `from` only if it's a `.sock` file in the receiver's own socket dir, or, across default dirs (`/tmp/cc-socks[-uid]`, `/run/user/N/cc-socks`), one with a `<digits>.sock` or `<1–16 hex>.sock` basename. That's why the hub socket is `a9e47b0b.sock` and sits in the dominant socket dir.
+- **Gotcha**: `Bun.file(sock).exists()` is **false** for sockets. Use `lib/fs.isSocket()`.
+- **Spawn**: `claude --bg` refuses untrusted workspaces ("Workspace not trusted"), which is mapped to `UntrustedWorkspaceError`. Child processes get an env without `CLAUDECODE` / `CLAUDE_CODE_*`.
 
-## Agent Identity is Channel-Scoped
+## Live chat & subagents (core/transcript.ts)
 
-An agent's identity is **(channel, alias)**, not a global alias. The same alias in
-two channels is two different agents (separate inbox, status, working_dir, groups).
+- Transcript: `~/.claude/projects/<cwd with non-alphanumerics → '-'>/<sessionId>.jsonl` (glob fallback). Records: `user` (prompts, `tool_result`), `assistant` (one content block per record: `text` / `thinking` / `tool_use`), `attachment.type=queued_command` (mid-turn prompts; `origin.kind: "peer"` = cross-session). Everything else is bookkeeping → skipped. `isMeta` user records (skill bodies) are skipped.
+- Subagents: `<projects>/<cwd>/<sessionId>/subagents/agent-<id>.jsonl` + `.meta.json` (`agentType`, `description`, `requestShape`). Their records are `isSidechain: true` (kept only when reading a subagent file). "Active" = written within 30 s.
+- History reads only the last 1.5 MB. Tails advance past the last `\n` only (torn writes wait). Tails are ref-counted per chat key and exist only while a client watches. Clients send `{type:"watch"|"unwatch", sessionId, agentId?}` over `/api/ws`; entries go to topic `transcript:<chatKey>`.
+- Subagents have **no socket**: "message" / "stop" are relayed as a hub DM asking the parent to use SendMessage / TaskStop (`Hub.relayToSubagent`). It's a request to the parent's model, not guaranteed.
 
-- `channel:join` / the dashboard invite derive a per-channel `agent_id` of the form
-  `` `${channelId}::${alias}` `` unless an explicit `--agent` is given. `display_name`
-  is the alias.
-- The caller-identifying commands take `--as <alias> --channel <id>` and resolve to
-  that id via `ChannelStore.resolveAlias`: `inbox:poll`, `inbox:wait`,
-  `agent:heartbeat`. `message:send` is addressed by alias + `--channel`;
-  `message:done` only needs `--id`.
-- Polling is bounded to one channel (`MessageStore.pollForChannelAlias`,
-  `ContextStore.pollForChannelAgent`), so nothing bleeds across channels.
-- Resolution goes through `resolveAlias`, so legacy rows where `agent_id == alias`
-  still work — no migration required.
+## Routing rules (core/hub.ts)
 
-## Message Routing
+- Inbound sender = the registry session whose `socketPath` matches the frame's `from`.
+- Room = leading `#slug` if the sender is a member, otherwise the sender's only room. Otherwise the message is a direct message and is logged in the sender's DM thread.
+- Recipients = mentioned member aliases (only aliases that exist count, so `@types/react` still broadcasts). `@operator` alone means no recipients. Otherwise everyone but the sender.
+- One `deliveries` row per recipient. `pending` rows flush when the session comes back online, matched by `sessionId`.
+- More than 30 relays per room in 60 s auto-pauses the room. Resume flushes what's pending.
 
-Recipients and type are parsed from the message **body**: `@alias` / `@group:id`
-mentions select recipients (no mention = channel broadcast), and an optional leading
-`/type` (`/task`, `/result`, …) sets the kind. Recipients are materialized to one
-row per member at send time, so broadcasts/groups reach every member. See
-`src/lib/message-parse.ts` and `src/commands/message.ts`.
+## Conventions
 
-## Database
+- Errors: throw `AgentHubError` subclasses. Each has an HTTP `status` plus `toResponse()` (Elysia's custom-error convention), so there is no `onError` hook to widen the route types. Use `catchError` / `catchErrorTyped` / `catchSync`, not try/catch.
+- All DB access goes through the stores. The hub emits a single `event` stream (`HubEvent` union), which the server publishes to WS topic `hub`.
+- Frontends never fetch inside components. They select from `createHubStore()` state and call its actions.
+- The server binds to `127.0.0.1`. `plugins/guard.ts` enforces a loopback `Host` and a same-origin `Origin`. Keep that guard in front of every route.
 
-Single SQLite file, path from `HUB_DB_PATH` env var (default: `~/.agenthub/hub.db`).
-The directory is auto-created on first access.
-
-Tables: `agents`, `channels`, `agent_groups`, `agent_group_members`, `agent_channels`, `messages`, `context`.
-
-Key constraints:
-- `agent_channels` has a composite PK `(agent_id, channel_id)` and a UNIQUE on `(channel_id, alias)` — aliases are channel-scoped and must be unique per channel.
-- `agent_group_members` has composite PK `(agent_id, group_id)`.
-- All operations go through Store classes, never raw DB queries in command handlers.
-
-## CLI Commands
-
-All commands output JSON to stdout. Errors output `{ ok: false, error: "..." }` and exit 1.
-
-`prompt` prints raw prompt text (not JSON) so an agent can run it and follow it.
-
-```
-agenthub server                    # Start Elysia dashboard + API (prints a banner)
-agenthub init                      # Create/init hub.db
-agenthub --version | -v            # Print embedded version
-agenthub agent:register            # Explicit registration (join auto-registers)
-agenthub agent:heartbeat           # --as <alias> --channel <id> --status <…>
-agenthub group:create / add / members
-agenthub channel:create / join [--group] / leave / list / members
-agenthub prompt                    # --channel --alias → print a member's join prompt
-agenthub inbox:poll                # --as <alias> --channel — pending messages + context + members
-agenthub inbox:wait                # --as <alias> --channel — block until a message arrives
-agenthub message:send              # --as <alias> --channel --payload (@mentions + /type in body)
-agenthub message:done              # Mark message done (--id)
-agenthub context:inject / applied
-```
-
-## Dashboard Frontend
-
-React 19 SPA served by Elysia. State lives in a single zustand store
-(`server/public/lib/store.ts`) refreshed by one module-level poller — components
-**select** from the store and never fetch in effects (on-demand reads like the join
-prompt use store actions). Layout is Discord-style: left rail (channel nav + the
-active channel's member roster), center message feed, context on demand via a
-dialog. Theming is two independent axes — accent (`data-accent`) × mode
-(`data-mode`) — implemented by overriding Tailwind `--color-*` vars in `styles.css`,
-so components keep using `text-indigo-400` / `bg-zinc-900` unchanged. Dialogs are
-portaled to `<body>` (the sidebar's transform would otherwise clamp them).
-
-## Error Handling
-
-Use `catchErrorTyped` from `src/lib/error-handler.ts` (Go-style tuples, not try/catch).
-Throw typed errors from `src/errors/custom-errors.ts` — never throw plain strings.
-
-## Adding a New Command
-
-1. Add a new variant to `CliResult` in `src/cli-parser.ts`
-2. Parse the flags in `parseCli()` switch
-3. Create a handler function in `src/commands/<scope>.ts`
-4. Add the `case` to `dispatch()` in `src/index.ts`
-
-## Dev Scripts
+## Scripts
 
 ```bash
-bun run dev          # Start server (agenthub server) with hot reload
-bun run typecheck    # tsc --noEmit — must be zero errors
-bun run db:generate  # Generate Drizzle migration from schema changes
-bun run db:migrate   # Apply pending migrations
-bun run db:studio    # Drizzle Studio (visual DB browser)
+bun run dev          # server, restarts on change (--watch; --hot would double-bind the sockets) — the user runs this; don't start it yourself
+bun run tui
+bun run typecheck    # bun check — must be zero errors
+bun test             # protocol unit tests + fake-session end-to-end + HTTP (app.handle)
+bun run db:generate  # drizzle-kit generate + embed migrations into src/db/embedded-migrations.ts
+bun run build:local  # single binary for this platform
 ```

@@ -1,124 +1,46 @@
-import { parseCli, printUsage } from "./cli-parser";
-import { runServer } from "./commands/server";
-import { runInit } from "./commands/init";
-import { runAgentRegister, runAgentHeartbeat } from "./commands/agent";
-import { runGroupCreate, runGroupAdd, runGroupMembers } from "./commands/group";
-import { runChannelCreate, runChannelJoin, runChannelLeave, runChannelList, runChannelMembers, runChannelSummary } from "./commands/channel";
-import { runPromptShow } from "./commands/prompt";
-import { runInboxPoll, runInboxWait, runAgentTick } from "./commands/inbox";
-import { runMessageSend, runMessageDone } from "./commands/message";
-import { runContextInject, runContextApplied } from "./commands/context";
+#!/usr/bin/env bun
+import { parseCli, printUsage, type CliResult } from "./cli-parser";
 import { catchError } from "./lib/error-handler";
 import { NAME, VERSION } from "./version";
+import { fail } from "./commands/output";
+import { runLs, runSend } from "./commands/sessions";
+import { runSpawn } from "./commands/spawn";
+import { runRoomAdd, runRoomCreate, runRoomPost, runRooms } from "./commands/rooms";
 
-async function main(): Promise<void> {
-  const result = parseCli();
-
-  if (result.type === "help") {
-    printUsage();
-    process.exit(0);
-  }
-
-  if (result.type === "version") {
-    console.log(`${NAME} v${VERSION}`);
-    process.exit(0);
-  }
-
-  if (result.type === "error") {
-    console.error(JSON.stringify({ ok: false, error: result.message }));
-    process.exit(1);
-  }
-
-  const [err] = await catchError(dispatch(result));
-
-  if (err) {
-    console.error(JSON.stringify({ ok: false, error: err.message }));
-    process.exit(1);
-  }
-}
-
-/** Route a parsed CLI result to the appropriate command handler */
-async function dispatch(result: Exclude<ReturnType<typeof parseCli>, { type: "help" | "version" | "error" }>): Promise<void> {
-  switch (result.type) {
-    case "server":
-      return runServer(result.port);
-
-    case "init":
-      return runInit(result.dbPath);
-
-    case "agent:register":
-      return runAgentRegister(result.id, result.dir, result.name);
-
-    case "agent:heartbeat":
-      return runAgentHeartbeat(result.alias, result.channel, result.status, result.note);
-
-    case "agent:tick":
-      return runAgentTick(result.alias, result.channel, {
-        status: result.status,
-        note: result.note,
-        membersVersion: result.membersVersion,
-      });
-
-    case "group:create":
-      return runGroupCreate(result.id, result.name, result.description);
-
-    case "group:add":
-      return runGroupAdd(result.group, result.agent);
-
-    case "group:members":
-      return runGroupMembers(result.group);
-
-    case "channel:create":
-      return runChannelCreate(result.id, result.topic, result.by);
-
-    case "channel:join":
-      return runChannelJoin(result.agent, result.channel, result.alias, result.role, result.group);
-
-    case "channel:leave":
-      return runChannelLeave(result.agent, result.channel);
-
-    case "channel:list":
-      return runChannelList(result.agent);
-
-    case "channel:members":
-      return runChannelMembers(result.channel);
-
-    case "channel:summary":
-      return runChannelSummary(result.channel, result.set);
-
-    case "prompt":
-      return runPromptShow(result.channel, result.alias);
-
-    case "inbox:poll":
-      return runInboxPoll(result.alias, result.channel);
-
-    case "inbox:wait":
-      return runInboxWait(result.alias, result.channel, result.timeout);
-
-    case "message:send":
-      return runMessageSend({
-        from: result.from,
-        channelId: result.channel,
-        to: result.to,
-        type: result.msgType,
-        payload: result.payload,
-      });
-
-    case "message:done":
-      return runMessageDone(result.id, result.agent);
-
-    case "context:inject":
-      return runContextInject({
-        content: result.content,
-        channelId: result.channel,
-        to: result.to,
-        toGroup: result.toGroup,
-        priority: result.priority,
-      });
-
-    case "context:applied":
-      return runContextApplied(result.id, result.agent);
+/** Route a parsed command to its handler. */
+async function dispatch(cli: CliResult): Promise<void> {
+  switch (cli.type) {
+    case "help":
+      return printUsage();
+    case "version":
+      return console.log(`${NAME} ${VERSION}`);
+    case "server": {
+      const { startServer } = await import("./server");
+      return startServer({ port: cli.port });
+    }
+    case "tui": {
+      const { runTui } = await import("./tui");
+      return runTui();
+    }
+    case "ls":
+      return runLs(cli.json);
+    case "send":
+      return runSend(cli.session, cli.body);
+    case "spawn": {
+      const { type: _, ...req } = cli;
+      return runSpawn(req);
+    }
+    case "rooms":
+      return runRooms();
+    case "room:create":
+      return runRoomCreate({ name: cli.name, topic: cli.topic, context: cli.context });
+    case "room:add":
+      return runRoomAdd(cli.roomId, cli.session, cli.alias);
+    case "room:post":
+      return runRoomPost(cli.roomId, cli.body);
   }
 }
 
-main();
+// Typed hub errors and argv errors (parseArgs throws TypeError) both end as `{ ok: false, error }`.
+const [err] = await catchError((async () => dispatch(parseCli()))());
+if (err) fail(err.message);

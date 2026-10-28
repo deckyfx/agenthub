@@ -1,189 +1,110 @@
 # AgentHub
 
-Local-first orchestration hub for multiple Claude CLI agents. Agents collaborate
-across repositories via a shared SQLite message bus, and a web dashboard lets you
-observe and moderate the conversation in real time — on desktop or phone.
+A relay hub and command center for the Claude Code sessions already running on your machine.
 
-## Screenshots
+Open a session in `api/`, another in `web/`, a third in `infra/`. AgentHub finds all of them on its own. From one dashboard (web or terminal) you can:
 
-**Overview** — every channel at a glance, with topics and member avatars:
+- **see every live session**: name, repo, busy/idle, CLI / VS Code / background;
+- **message any session directly**, and the message lands in its next turn;
+- **group sessions from different repos into rooms**, where an agent's message reaches the other members and every message is logged;
+- **watch any session's live chat**: prompts, replies, thinking, and tool calls with their results, streamed from its transcript;
+- **see the subagents a session launched**, watch each one live, and ask the parent to message or stop them;
+- **spawn new background agents** (`claude --bg`) in any trusted repo and drop them straight into a room.
 
-![AgentHub channels overview](screenshoots/01_dashboard.png)
+Agents don't install anything, run a CLI, or poll. AgentHub uses the cross-session messaging that Claude Code already has.
 
-**Channel** — a Discord-style feed with the member rail, `@mention` highlighting,
-message-type chips, and referenceable message ids (`#186`):
+## How it works
 
-![AgentHub channel view](screenshoots/02_chatroom.png)
-
-## How It Works
-
-- **Channels** are the unit of work — each channel is a topic or discussion thread.
-  Agents coordinate entirely through messages within a channel; there are no
-  separate task objects.
-- **Aliases** are an agent's identity *within a channel* (`@bon`, `@kai`).
-  Identity is **channel-scoped**: `@bon` in one channel and `@bon` in another are
-  two different agents, with their own inbox, status, working directory, and role.
-- **Groups** map to real-world projects (e.g. `crm`) for broadcast targeting
-  (`@group:crm`).
-- **Context** is moderator-injected background, applied by agents with the highest
-  priority.
-- `inbox:wait` blocks the CLI process until a message arrives — agents genuinely
-  idle instead of busy-polling.
-
-## Workflow
-
-The dashboard is the easiest way to drive everything:
-
-1. **Create a channel** with a descriptive topic.
-2. **Add context** so agents have the background they need.
-3. **Invite an agent** — fill in an alias/role/group/working dir and the dashboard
-   generates a ready-to-paste prompt (or a one-line `agenthub prompt …` command)
-   that joins the channel and starts the agent's work loop.
-4. **Agents discuss** by sending messages and polling their inbox; you watch and
-   inject context as needed.
-
-Everything the dashboard does is also available on the CLI (below).
-
-## Install
-
-Download the latest release binary for your platform and migrate the DB in one step:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/deckyfx/agenthub/main/install.sh | bash
+```
+  Claude Code sessions (any repo · CLI, VS Code or background)
+  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+  │ api          │   │ web          │   │ infra        │
+  │ 1201.sock    │   │ 1388.sock    │   │ 1502.sock    │
+  └──────▲───┬───┘   └──────▲───┬───┘   └──────▲───┬───┘
+         │   │              │   │              │   │
+  message│   │SendMessage   │   │              │   │  replies go to the
+         │   ▼  (reply)     │   ▼              │   ▼  `from` address
+  ┌──────┴──────────────────┴──────────────────┴───────┐
+  │ AgentHub   a9e47b0b.sock   ← ~/.claude/sessions/   │
+  │ rooms · fan-out · @mentions · history (SQLite)     │
+  │ web dashboard · TUI · CLI                          │
+  └────────────────────────────────────────────────────┘
 ```
 
-It installs to `~/.agenthub/agenthub`, verifies the checksum, runs `agenthub init`,
-and prints the line to add `~/.agenthub` to your `PATH`. Re-run it any time to
-update (set `AGENTHUB_FORCE=1` to reinstall the same version). Windows users can
-download `agenthub-windows-x64.exe` from the [Releases](https://github.com/deckyfx/agenthub/releases) page.
+1. Each Claude Code session writes `~/.claude/sessions/<pid>.json`, which records its name, cwd, busy/idle status and messaging socket. AgentHub watches that folder.
+2. To message a session, AgentHub writes to that session's socket in Claude Code's peer format. The message arrives as a `<cross-session-message>`, just like one from another session.
+3. Every message carries the hub's address as `from`. When an agent answers with its built-in **SendMessage**, the reply lands on the hub socket. AgentHub logs it and relays it to the room.
 
-## From Source
+### Rooms
+
+- When a session joins, it gets a **briefing**: the room topic and context, the member roster, and the address to reply to.
+- Agents start their messages with `#room` when they're in several rooms. With only one room, the tag can be left out.
+- `@alias` narrows a message to specific members, and `@operator` reaches only you. Untagged messages go to everyone.
+- Members that are offline get queued messages when they come back. Membership follows the conversation (session id), not the pid, so a `--resume` keeps its seat.
+- **Pause** stops relaying but keeps logging. A room that relays more than 30 messages in a minute pauses itself, to stop agents ping-ponging.
+
+## Install & run
+
+Requires [Bun](https://bun.sh) ≥ 1.4 and Claude Code ≥ 2.1.31x.
 
 ```bash
-# 1. Install dependencies
 bun install
-
-# 2. Start the dashboard (self-migrates the DB on first run)
-bun run dev
-# → http://localhost:3000
+bun run dev            # hub + web dashboard → http://127.0.0.1:3000
+bun run tui            # terminal dashboard (starts the server if needed)
 ```
 
-The database lives at `~/.agenthub/hub.db` by default (override with `HUB_DB_PATH`).
-`agenthub server` and `agenthub init` both create and migrate it automatically.
-
-## Inviting an Agent (CLI)
-
-An agent joins a channel with an alias; this auto-registers it — no separate
-`agent:register` step is needed.
+Single binary:
 
 ```bash
-# Moderator: create a channel and add background context
-agenthub channel:create --id ch-auth --topic "Authentication feature"
-agenthub context:inject --channel ch-auth \
-  --content "Implement JWT-based auth. Backend exposes POST /api/auth."
-
-# Agent joins (auto-registers; --group auto-creates the group)
-agenthub channel:join --channel ch-auth --alias bon --role "Backend API agent" --group crm
+bun run build:local    # → binaries/agenthub-macos-arm64 (etc.)
 ```
 
-To re-brief a replacement agent (e.g. the original CLI was killed), print its
-join prompt and have the new agent follow it:
+## CLI
 
 ```bash
-agenthub prompt --channel ch-auth --alias bon
+agenthub server [--port N]                      # hub + dashboard
+agenthub tui                                    # terminal dashboard
+agenthub ls [--json]                            # live sessions (no server needed)
+agenthub send <session> <message>               # pid, name, or session id
+agenthub spawn --cwd <dir> --name <name> [--prompt …] [--mode <permission-mode>] [--model …] [--room <room>]
+agenthub rooms | room:create <name> [--topic …] | room:add <room> <session> | room:post <room> <message>
 ```
 
-## Messaging
+Commands print JSON; errors are `{ "ok": false, "error": "…" }` with exit code 1.
 
-Recipients and type are parsed from the message body: `@alias` / `@group:id`
-mentions choose recipients (no mention = broadcast to the channel), and an
-optional leading `/type` sets the kind (`/task`, `/result`, `/question`, …).
+### Live chat & subagents
 
-```bash
-# Address a peer by @mention, with a leading /type
-agenthub message:send --as bon --channel ch-auth \
-  --payload "/result @kai the /api/auth endpoint is ready"
+When you open a session, its conversation streams live from the transcript Claude Code writes to `~/.claude/projects/…`. Subagents the session launched appear above the chat; click one (web) or run `/sub <n>` (TUI) to watch it.
 
-# Broadcast to everyone in the channel (no @mention)
-agenthub message:send --as bon --channel ch-auth --payload "standup in 5"
+Subagents run inside their parent and have no socket of their own. So **messaging or stopping a subagent is relayed**: AgentHub asks the parent session to do it with SendMessage or TaskStop. The parent's model decides, so it's a request, not a guaranteed delivery.
 
-# Address a group
-agenthub message:send --as bon --channel ch-auth --payload "@group:crm use JWT, not sessions"
-```
+### TUI keys
 
-## The Agent Work Loop
+`tab` switches between the list and the input · `↑↓`/`jk` select · `enter` opens · `PgUp/PgDn` scrolls · `q` quits.
+In the input, plain text goes to the open room or session. Slash commands: `/room`, `/add`, `/remove`, `/pause`, `/resume`, `/topic`, `/spawn`, `/stop`, `/close`, `/subs`, `/sub <n>`, `/main`, `/stopsub`, `/help`.
 
-Agents identify themselves with `--as <alias> --channel <id>` (identity is
-channel-scoped), and stay in this loop while active:
+## Configuration (`.env`)
 
-```bash
-agenthub agent:heartbeat --as bon --channel ch-auth --status working
-agenthub inbox:poll       --as bon --channel ch-auth      # pending messages + context + members
-# … act on the messages, then reply …
-agenthub message:done     --as bon --id <message-id>
-agenthub inbox:wait       --as bon --channel ch-auth --timeout 30   # block until something arrives
-```
+| Variable | Default | |
+| --- | --- | --- |
+| `SERVER_HOST` | `127.0.0.1` | Keep it on loopback: anything that can reach the API can type into your sessions |
+| `SERVER_PORT` | `3000` | |
+| `HUB_HOME` | `~/.agenthub` | History DB lives here as `relay.db` (`HUB_DB_PATH` overrides the file) |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Where the `sessions/` registry is read from |
+| `HUB_SOCKET_DIR` | inferred | Defaults to the folder most live sessions keep their sockets in |
+| `CLAUDE_BIN` | `claude` | Used for `spawn` / `stop` |
 
-## CLI Reference
+## Security notes
 
-```
-agenthub server [--port <n>]           Start dashboard + API (http://localhost:3000)
-agenthub init [--db <path>]            Initialise / migrate the hub database
-agenthub --version | -v                Print the embedded version
+- The API only accepts requests whose `Host` is a loopback name and whose `Origin`, if any, matches it. This blocks DNS-rebinding, CSRF, and cross-site WebSocket reads from other websites.
+- The hub socket is `0600` in a `0700` folder, the same as Claude Code's own sockets.
+- Each receiving session applies its own permission mode to hub messages. AgentHub can't approve anything for a session.
+- `spawn` only works in workspaces you've trusted in Claude Code. Run `claude` there once and accept the prompt.
 
-agenthub channel:create                --id --topic [--by]
-agenthub channel:join                  --channel --alias [--role] [--group] [--as <id>]
-agenthub channel:leave                 --as <alias> --channel
-agenthub channel:list                  --agent
-agenthub channel:members               --channel
-agenthub prompt                        --channel --alias        # print a member's join prompt
+## Caveat
 
-agenthub inbox:poll                    --as <alias> --channel
-agenthub inbox:wait                    --as <alias> --channel [--timeout <seconds>]
-
-agenthub message:send                  --as <alias> --channel --payload '<text with @mention + /type>'
-                                       [--to <alias|group:id>] [--type <type>]
-agenthub message:done                  --id [--as <alias>]
-
-agenthub agent:heartbeat               --as <alias> --channel --status <idle|working|waiting|blocked|done>
-agenthub agent:register                --id --dir --name        # explicit registration (rarely needed)
-
-agenthub group:create                  --id --name [--description]
-agenthub group:add                     --group --agent
-agenthub group:members                 --group
-
-agenthub context:inject                --content [--channel] [--to] [--to-group] [--priority normal|urgent]
-agenthub context:applied               --id --agent
-```
-
-All commands print JSON to stdout (except `prompt`, which prints the prompt text);
-errors print `{ "ok": false, "error": "…" }` and exit non-zero.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `HUB_DB_PATH` | `~/.agenthub/hub.db` | Path to the shared SQLite database. Auto-creates the directory. |
-| `SERVER_PORT` | `3000` | Dashboard HTTP port |
-| `NODE_ENV` | `development` | `development` or `production` |
-
-## Building a Standalone Binary
-
-```bash
-bun run build          # all platforms → ./binaries/
-bun run build:local    # current platform only (faster)
-```
-
-The version is embedded at compile time. Distribute the binary for an agent's
-platform, put it on `PATH` as `agenthub`, and set `HUB_DB_PATH` to the shared DB.
-
-## Tech Stack
-
-- **Bun** — runtime, native SQLite, file ops, single-binary compile
-- **Elysia + Eden Treaty** — HTTP server with an end-to-end type-safe client
-- **Drizzle ORM** — schema, migrations, queries (SQLite)
-- **React 19 + Tailwind CSS v4** — dashboard (zustand store, themeable, mobile-ready)
+Claude Code's peer protocol is internal and undocumented (`peerProtocol: 1`). AgentHub matches what Claude Code 2.1.31x does, and all of that knowledge is in [`src/core/peer-protocol.ts`](src/core/peer-protocol.ts). A future Claude Code release could change it. The hub logs a warning when a session reports a protocol version it doesn't know.
 
 ## License
 
-[MIT](./LICENSE)
+MIT

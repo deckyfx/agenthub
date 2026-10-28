@@ -1,7 +1,5 @@
 import { Elysia } from "elysia";
-import index from "../public/index.html";
+import index from "../../web/index.html";
 
-/** Serve the React SPA for all non-API routes */
-export const appPlugin = new Elysia()
-  .get("/", index)
-  .get("/*", index);
+/** React SPA: `/` and every client-side route serve the HTML bundle. */
+export const appPlugin = new Elysia().get("/", index).get("/*", index);

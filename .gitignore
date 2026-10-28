@@ -4,3 +4,4 @@ dist/
 *.log
 binaries/
 data/
+*.code-workspace

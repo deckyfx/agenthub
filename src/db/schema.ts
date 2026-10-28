@@ -1,161 +1,75 @@
-import {
-  sqliteTable,
-  text,
-  integer,
-  primaryKey,
-  unique,
-} from "drizzle-orm/sqlite-core";
-import { sql, type InferSelectModel, type InferInsertModel } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-// ─── Agents ──────────────────────────────────────────────────────────────────
-
-export const agents = sqliteTable("agents", {
+/** A room groups sessions (often from different repos) around one piece of work. */
+export const rooms = sqliteTable("rooms", {
+  /** URL/prompt-safe slug, e.g. `checkout-feature`. Agents address it as `#slug`. */
   id: text("id").primaryKey(),
-  display_name: text("display_name").notNull(),
-  /** idle | working | waiting | blocked | done */
-  status: text("status").notNull().default("idle"),
-  /** Optional short reason for the current status, e.g. "blocked on @bob's API". */
-  status_note: text("status_note"),
-  working_dir: text("working_dir").notNull(),
-  last_heartbeat: integer("last_heartbeat")
-    .notNull()
-    .default(sql`(unixepoch())`),
-  created_at: integer("created_at")
-    .notNull()
-    .default(sql`(unixepoch())`),
+  topic: text("topic").notNull().default(""),
+  /** Background briefing sent to every member when they join. */
+  context: text("context").notNull().default(""),
+  /** Paused rooms log inbound messages but do not fan them out. */
+  paused: integer("paused", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`),
 });
 
-export type Agent = InferSelectModel<typeof agents>;
-export type NewAgent = InferInsertModel<typeof agents>;
-
-// ─── Channels ─────────────────────────────────────────────────────────────────
-
-export const channels = sqliteTable("channels", {
-  id: text("id").primaryKey(),
-  topic: text("topic").notNull(),
-  created_by: text("created_by").notNull(),
-  /** Rolling agent-maintained digest of the channel, so joining/resuming agents
-   *  can catch up without re-reading the whole history. */
-  summary: text("summary"),
-  created_at: integer("created_at")
-    .notNull()
-    .default(sql`(unixepoch())`),
-  /** 0 = active, 1 = archived */
-  archived: integer("archived").notNull().default(0),
-});
-
-export type Channel = InferSelectModel<typeof channels>;
-export type NewChannel = InferInsertModel<typeof channels>;
-
-// ─── Agent Groups ─────────────────────────────────────────────────────────────
-
-export const agentGroups = sqliteTable("agent_groups", {
-  id: text("id").primaryKey(),
-  display_name: text("display_name").notNull(),
-  description: text("description"),
-  created_at: integer("created_at")
-    .notNull()
-    .default(sql`(unixepoch())`),
-});
-
-export type AgentGroup = InferSelectModel<typeof agentGroups>;
-export type NewAgentGroup = InferInsertModel<typeof agentGroups>;
-
-// ─── Agent Group Members ──────────────────────────────────────────────────────
-
-export const agentGroupMembers = sqliteTable(
-  "agent_group_members",
+/**
+ * Session membership. Keyed by Claude Code's `sessionId` (stable across
+ * restarts and `--resume`), not the pid.
+ */
+export const roomMembers = sqliteTable(
+  "room_members",
   {
-    agent_id: text("agent_id")
-      .notNull()
-      .references(() => agents.id),
-    group_id: text("group_id")
-      .notNull()
-      .references(() => agentGroups.id),
-    joined_at: integer("joined_at")
-      .notNull()
-      .default(sql`(unixepoch())`),
-  },
-  (table) => [primaryKey({ columns: [table.agent_id, table.group_id] })],
-);
-
-export type AgentGroupMember = InferSelectModel<typeof agentGroupMembers>;
-export type NewAgentGroupMember = InferInsertModel<typeof agentGroupMembers>;
-
-// ─── Agent Channels (subscriptions) ──────────────────────────────────────────
-
-export const agentChannels = sqliteTable(
-  "agent_channels",
-  {
-    agent_id: text("agent_id")
-      .notNull()
-      .references(() => agents.id),
-    channel_id: text("channel_id")
-      .notNull()
-      .references(() => channels.id),
-    /** Channel-scoped human-readable alias (without @) */
+    roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").notNull(),
+    /** In-room handle (`@alias`), unique per room. */
     alias: text("alias").notNull(),
-    role_description: text("role_description"),
-    subscribed_at: integer("subscribed_at")
-      .notNull()
-      .default(sql`(unixepoch())`),
+    /** Last seen session name / cwd, for display while offline. */
+    name: text("name").notNull().default(""),
+    cwd: text("cwd").notNull().default(""),
+    joinedAt: integer("joined_at").notNull().default(sql`(unixepoch() * 1000)`),
   },
-  (table) => [
-    primaryKey({ columns: [table.agent_id, table.channel_id] }),
-    // Aliases must be unique within a channel
-    unique("uq_channel_alias").on(table.channel_id, table.alias),
-  ],
+  (t) => [primaryKey({ columns: [t.roomId, t.sessionId] }), uniqueIndex("room_alias_uq").on(t.roomId, t.alias)],
 );
 
-export type AgentChannel = InferSelectModel<typeof agentChannels>;
-export type NewAgentChannel = InferInsertModel<typeof agentChannels>;
+/** Who authored a message. */
+export type SenderKind = "operator" | "session" | "hub";
 
-// ─── Messages ─────────────────────────────────────────────────────────────────
+/**
+ * Every relayed message. `roomId` null = a direct thread between the operator
+ * and `sessionId`. For room messages `sessionId` is the sending session (if any).
+ */
+export const messages = sqliteTable(
+  "messages",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    roomId: text("room_id").references(() => rooms.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
+    senderKind: text("sender_kind").$type<SenderKind>().notNull(),
+    senderLabel: text("sender_label").notNull(),
+    body: text("body").notNull(),
+    createdAt: integer("created_at").notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [index("messages_room_idx").on(t.roomId, t.id), index("messages_session_idx").on(t.sessionId, t.id)],
+);
 
-export const messages = sqliteTable("messages", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  channel_id: text("channel_id")
-    .notNull()
-    .references(() => channels.id),
-  from_agent: text("from_agent").notNull(),
-  from_alias: text("from_alias"),
-  /** Null = channel broadcast */
-  to_agent: text("to_agent"),
-  /** 'all' for broadcast, alias name otherwise */
-  to_alias: text("to_alias"),
-  /** task | result | question | answer | command | context | status */
-  type: text("type").notNull(),
-  payload: text("payload").notNull(),
-  /** pending | read | done */
-  status: text("status").notNull().default("pending"),
-  created_at: integer("created_at")
-    .notNull()
-    .default(sql`(unixepoch())`),
-  read_at: integer("read_at"),
-  done_at: integer("done_at"),
-});
+/** Per-recipient delivery state of a message. */
+export type DeliveryStatus = "pending" | "sent" | "failed";
 
-export type Message = InferSelectModel<typeof messages>;
-export type NewMessage = InferInsertModel<typeof messages>;
+/** Fan-out bookkeeping: one row per (message, recipient session). */
+export const deliveries = sqliteTable(
+  "deliveries",
+  {
+    messageId: integer("message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").notNull(),
+    status: text("status").$type<DeliveryStatus>().notNull().default("pending"),
+    error: text("error"),
+    updatedAt: integer("updated_at").notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [primaryKey({ columns: [t.messageId, t.sessionId] }), index("deliveries_pending_idx").on(t.sessionId, t.status)],
+);
 
-// ─── Context Injections ───────────────────────────────────────────────────────
-
-export const contextInjections = sqliteTable("context", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  /** Null = direct injection without channel scope */
-  channel_id: text("channel_id"),
-  /** Agent ID, @alias, group:<group_id>, or 'all' */
-  target_agent: text("target_agent").notNull(),
-  content: text("content").notNull(),
-  injected_by: text("injected_by").notNull().default("moderator"),
-  /** normal | urgent */
-  priority: text("priority").notNull().default("normal"),
-  created_at: integer("created_at")
-    .notNull()
-    .default(sql`(unixepoch())`),
-  applied_by: text("applied_by"),
-  applied_at: integer("applied_at"),
-});
-
-export type ContextInjection = InferSelectModel<typeof contextInjections>;
-export type NewContextInjection = InferInsertModel<typeof contextInjections>;
+export type Room = typeof rooms.$inferSelect;
+export type RoomMember = typeof roomMembers.$inferSelect;
+export type Message = typeof messages.$inferSelect;
+export type Delivery = typeof deliveries.$inferSelect;

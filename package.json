@@ -1,67 +1,49 @@
 {
   "name": "agenthub",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
   "license": "MIT",
-  "description": "Local-first orchestration hub for multiple Claude CLI agents collaborating over a shared SQLite message bus, with a web dashboard.",
+  "description": "Relay hub and command center for live Claude Code sessions — discover sessions, message them, group them into rooms across repos, and spawn new ones. Web dashboard + TUI.",
   "author": "Decky Fiyemonda (https://github.com/deckyfx)",
   "homepage": "https://github.com/deckyfx/agenthub#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deckyfx/agenthub.git"
   },
-  "bugs": {
-    "url": "https://github.com/deckyfx/agenthub/issues"
-  },
-  "keywords": [
-    "claude",
-    "claude-code",
-    "agents",
-    "multi-agent",
-    "orchestration",
-    "cli",
-    "bun",
-    "elysia",
-    "sqlite"
-  ],
+  "keywords": ["claude", "claude-code", "agents", "multi-agent", "relay", "dashboard", "tui", "bun", "elysia"],
   "bin": {
     "agenthub": "./src/index.ts"
   },
   "scripts": {
-    "dev": "bun run src/index.ts server",
+    "dev": "bun --watch run src/index.ts server",
     "start": "bun run src/index.ts server",
-    "typecheck": "tsc --noEmit",
-    "build": "bun run typecheck && bun run build.ts",
-    "build:local": "bun run typecheck && bun run build.ts --local",
-    "install:local": "bash scripts/install.sh --rebuild",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "bun run src/db/migrate.ts",
-    "db:embed": "bun run scripts/embed-migrations.ts",
-    "db:studio": "drizzle-kit studio",
-    "db:setup": "bun run db:generate && bun run db:embed && bun run db:migrate"
+    "tui": "bun run src/index.ts tui",
+    "typecheck": "bun check",
+    "test": "bun test",
+    "build": "bun run typecheck && bun run src/build.ts",
+    "build:local": "bun run typecheck && bun run src/build.ts --local",
+    "db:generate": "drizzle-kit generate && bun run src/db/embed-migrations.ts",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@elysiajs/cors": "^1.4.1",
-    "@elysiajs/eden": "^1.4.6",
-    "@elysiajs/server-timing": "^1.4.0",
-    "drizzle-orm": "^0.44.7",
-    "elysia": "^1.4.22",
-    "lucide-react": "^1.17.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "zustand": "^5.0.14"
+    "@elysiajs/eden": "^1.4.9",
+    "drizzle-orm": "^0.45.4",
+    "elysia": "^1.4.30",
+    "ink": "^8.0.0",
+    "lucide-react": "^1.62.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/react": "^19.1.6",
-    "@types/react-dom": "^19.1.6",
+    "@types/bun": "^1.4.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "bun-plugin-tailwind": "^0.1.2",
-    "drizzle-kit": "^0.31.9",
-    "tailwindcss": "^4.1.8"
-  },
-  "peerDependencies": {
-    "typescript": "^6"
+    "drizzle-kit": "^0.31.11",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
   }
 }
