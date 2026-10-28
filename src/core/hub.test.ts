@@ -23,7 +23,7 @@ interface FakeSession {
   pid: number;
   sessionId: string;
   socketPath: string;
-  inbox: Array<{ body: string; fromName?: string; from?: string }>;
+  inbox: Array<{ body: string; fromName?: string; from?: string; priority?: string }>;
   listener: UnixSocketListener<{ buf: string }>;
 }
 
@@ -40,7 +40,9 @@ async function fakeSession(name: string, pid: number, project: string): Promise<
         while ((nl = s.data.buf.indexOf("\n")) !== -1) {
           const frame = parseFrame(JSON.parse(s.data.buf.slice(0, nl)));
           s.data.buf = s.data.buf.slice(nl + 1);
-          if (frame.kind === "user") inbox.push({ body: frame.envelope.body, fromName: frame.envelope.fromName, from: frame.envelope.from });
+          if (frame.kind === "user") {
+            inbox.push({ body: frame.envelope.body, fromName: frame.envelope.fromName, from: frame.envelope.from, priority: frame.priority });
+          }
         }
       },
     },
@@ -172,6 +174,41 @@ describe("hub relay", () => {
     await Bun.sleep(100);
     expect(web.inbox.length).toBe(before);
     hub.updateRoom("checkout-feature", { paused: false });
+  });
+
+  test("an open AskUserQuestion is answered at priority now, once", async () => {
+    const transcript = join(TEST_ROOT, "claude", "projects", "-work-api", `${api.sessionId}.jsonl`);
+    const ask = {
+      type: "assistant",
+      uuid: "ask1",
+      timestamp: new Date().toISOString(),
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_ask1",
+            name: "AskUserQuestion",
+            input: { questions: [{ question: "Ship it?", header: "Ship", multiSelect: false, options: [{ label: "Yes", description: "" }, { label: "No", description: "" }] }] },
+          },
+        ],
+      },
+    };
+    await Bun.write(transcript, `${JSON.stringify(ask)}\n`);
+
+    await expect(hub.answerQuestion(api.sessionId, "toolu_ask1", {})).rejects.toThrow("has no answer");
+    await expect(hub.answerQuestion(api.sessionId, "toolu_nope", { "Ship it?": "Yes" })).rejects.toThrow("isn't in the session");
+
+    await hub.answerQuestion(api.sessionId, "toolu_ask1", { "Ship it?": "Yes" });
+    await until(() => api.inbox.some((m) => m.body.includes("AskUserQuestion (toolu_ask1)")));
+    const sent = api.inbox.find((m) => m.body.includes("AskUserQuestion (toolu_ask1)"));
+    expect(sent?.priority).toBe("now");
+    expect(sent?.body).toContain('- "Ship it?" = "Yes"');
+
+    // Once the session records a result, the question is settled.
+    const answered = { type: "user", uuid: "res1", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_ask1", content: "ok" }] } };
+    await Bun.write(transcript, `${JSON.stringify(ask)}\n${JSON.stringify(answered)}\n`);
+    await expect(hub.answerQuestion(api.sessionId, "toolu_ask1", { "Ship it?": "No" })).rejects.toThrow("already answered");
   });
 
   test("messages to an offline member queue and flush when it returns", async () => {

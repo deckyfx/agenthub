@@ -9,6 +9,7 @@ Open a session in `api/`, another in `web/`, a third in `infra/`. AgentHub finds
 - **group sessions from different repos into rooms**, where an agent's message reaches the other members and every message is logged;
 - **watch any session's live chat**: prompts, replies, thinking, and tool calls with their results, streamed from its transcript;
 - **see the subagents a session launched**, watch each one live, and ask the parent to message or stop them;
+- **answer a session's AskUserQuestion** from the dashboard or TUI when nobody is at its terminal;
 - **spawn new background agents** (`claude --bg`) in any trusted repo and drop them straight into a room.
 
 Agents don't install anything, run a CLI, or poll. AgentHub uses the cross-session messaging that Claude Code already has.
@@ -78,10 +79,18 @@ When you open a session, its conversation streams live from the transcript Claud
 
 Subagents run inside their parent and have no socket of their own. So **messaging or stopping a subagent is relayed**: AgentHub asks the parent session to do it with SendMessage or TaskStop. The parent's model decides, so it's a request, not a guaranteed delivery.
 
+### Questions (AskUserQuestion)
+
+When an agent asks a question, the live chat shows it as a card with its options. Once it's answered, the card ticks the chosen options and says whether the answer came from the session or from AgentHub.
+
+While a question is still open, you can answer it: pick the options (or type your own) and click **Send answers** (web), or run `/answer` with one choice per question (TUI): `/answer 1 2`, `/answer 1,3` for a pick-any question, `/answer "own text"`.
+
+Claude Code has no way for another process to fill in its question dialog. So AgentHub **interrupts the session** (a message sent with `priority: "now"`): the dialog closes, the tool call shows as rejected, and your answers arrive as the next prompt. The receiving agent sees a message from AgentHub, not its own user, so it may still check with its user before doing anything risky.
+
 ### TUI keys
 
 `tab` switches between the list and the input · `↑↓`/`jk` select · `enter` opens · `PgUp/PgDn` scrolls · `q` quits.
-In the input, plain text goes to the open room or session. Slash commands: `/room`, `/add`, `/remove`, `/pause`, `/resume`, `/topic`, `/spawn`, `/stop`, `/close`, `/subs`, `/sub <n>`, `/main`, `/stopsub`, `/help`.
+In the input, plain text goes to the open room or session. Slash commands: `/room`, `/add`, `/remove`, `/pause`, `/resume`, `/topic`, `/spawn`, `/stop`, `/close`, `/subs`, `/sub <n>`, `/main`, `/stopsub`, `/answer`, `/help`.
 
 ## Configuration (`.env`)
 

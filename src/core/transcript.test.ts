@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_ROOT } from "../test-setup";
 import { findTranscript, listSubagents, parseRecord, readHistory, subagentTranscript, TranscriptTail, type ChatEntry } from "./transcript";
+import { formatAnswerMessage, parseAnswerMessage, questionStatuses, splitAnswer, type AskQuestion } from "./questions";
 
 // Record shapes as Claude Code 2.1.31x writes them (trimmed).
 const human = {
@@ -124,5 +125,75 @@ describe("transcript files", () => {
     expect(path).toBe(join(dir, "agent-abc123.jsonl"));
     expect((await readHistory(path ?? "")).map((e) => e.kind)).toEqual(["thinking", "text", "tool"]); // sidechain kept
     expect(subagentTranscript(mainPath, "../../etc")).toBeUndefined();
+  });
+});
+
+// AskUserQuestion as Claude Code 2.1.31x records it (trimmed).
+const shipQ: AskQuestion = {
+  question: "Should I go ahead?",
+  header: "Ship it?",
+  multiSelect: false,
+  options: [
+    { label: "Yes, all of it (Recommended)", description: "Commit, merge, push." },
+    { label: "Don't do it", description: "" },
+  ],
+};
+const pickQ: AskQuestion = { question: "Which parts?", header: "Parts", multiSelect: true, options: [{ label: "web", description: "" }, { label: "tui", description: "" }] };
+const askRecord = (id: string) => ({
+  type: "assistant",
+  uuid: `ask-${id}`,
+  timestamp: "2026-10-28T06:00:00.000Z",
+  message: { role: "assistant", content: [{ type: "tool_use", id, name: "AskUserQuestion", input: { questions: [shipQ, pickQ] } }] },
+});
+
+describe("AskUserQuestion", () => {
+  test("a call becomes a question entry, not a tool", () => {
+    const [q] = parseRecord(askRecord("toolu_a"));
+    expect(q).toMatchObject({ kind: "question", id: "toolu_a", questions: [shipQ, pickQ] });
+  });
+
+  test("answers come from toolUseResult, and statuses follow", () => {
+    const answered = {
+      type: "user",
+      uuid: "r-a",
+      toolUseResult: { questions: [shipQ, pickQ], answers: { "Should I go ahead?": "Yes, all of it (Recommended)", "Which parts?": "web, tui, docs" } },
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_a", content: "Your questions have been answered: …" }] },
+    };
+    const declined = {
+      type: "user",
+      uuid: "r-b",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_b", content: "User declined to answer questions", is_error: true }] },
+    };
+    const entries = [askRecord("toolu_a"), answered, askRecord("toolu_b"), declined, askRecord("toolu_c")].flatMap((r) => parseRecord(r));
+    const st = questionStatuses(entries);
+    expect(st.get("toolu_a")).toEqual({ state: "answered", via: "session", answers: answered.toolUseResult.answers });
+    expect(st.get("toolu_b")).toEqual({ state: "dismissed", reason: "User declined to answer questions" });
+    expect(st.get("toolu_c")).toEqual({ state: "open" });
+    expect(splitAnswer(pickQ, "web, tui, docs")).toEqual({ picked: new Set(["web", "tui"]), other: "docs" });
+    expect(splitAnswer(shipQ, "Not yet")).toEqual({ picked: new Set(), other: "Not yet" });
+  });
+
+  test("a hub answer round-trips and wins over the interrupted result", () => {
+    const answers = { "Should I go ahead?": 'Yes, but say "done" after\nthe push', "Which parts?": "web" };
+    const body = formatAnswerMessage("toolu_c", [shipQ, pickQ], answers);
+    expect(parseAnswerMessage(body)).toEqual({ toolUseId: "toolu_c", answers });
+    expect(parseAnswerMessage("just a message")).toBeUndefined();
+
+    const interrupted = {
+      type: "user",
+      uuid: "r-c",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_c", content: "[Request interrupted by user for tool use]", is_error: true }] },
+    };
+    const arrived = {
+      type: "attachment",
+      uuid: "q-c",
+      attachment: {
+        type: "queued_command",
+        prompt: `<cross-session-message from="uds:/tmp/h.sock" from-name="AgentHub (operator)">\n${body}\n</cross-session-message>`,
+        origin: { kind: "peer", name: "AgentHub (operator)", body },
+      },
+    };
+    const entries = [askRecord("toolu_c"), interrupted, arrived].flatMap((r) => parseRecord(r));
+    expect(questionStatuses(entries).get("toolu_c")).toEqual({ state: "answered", via: "hub", answers });
   });
 });

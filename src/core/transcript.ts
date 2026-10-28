@@ -6,6 +6,7 @@ import { envConfig } from "../env-config";
 import { catchError, catchSync } from "../lib/error-handler";
 import { TypedEmitter } from "../lib/emitter";
 import { parseEnvelope } from "./peer-protocol";
+import { ASK_TOOL, type AskQuestion, type Answers, parseAnswerMessage, parseAnswers, parseQuestions } from "./questions";
 
 /**
  * Live view of a session's conversation, read from the transcript Claude Code
@@ -20,13 +21,18 @@ const MAX_TEXT = 4000;
 /** Bytes read from the end of a transcript to build the initial history. */
 const HISTORY_BYTES = 1_500_000;
 
-/** One normalized item of a session's conversation. */
+/**
+ * One normalized item of a session's conversation. An AskUserQuestion call is
+ * a `question` (its `id` is the tool use id); its result carries the chosen
+ * `answers`, and a hub message that answered it carries `answersFor`.
+ */
 export type ChatEntry =
-  | { kind: "prompt"; id: string; ts: number; text: string; source: "human" | "peer"; from?: string }
+  | { kind: "prompt"; id: string; ts: number; text: string; source: "human" | "peer"; from?: string; answersFor?: { toolUseId: string; answers: Answers } }
   | { kind: "text"; id: string; ts: number; text: string }
   | { kind: "thinking"; id: string; ts: number; text: string }
   | { kind: "tool"; id: string; ts: number; name: string; summary: string; input: string }
-  | { kind: "result"; id: string; ts: number; toolUseId: string; text: string; isError: boolean };
+  | { kind: "question"; id: string; ts: number; questions: AskQuestion[] }
+  | { kind: "result"; id: string; ts: number; toolUseId: string; text: string; isError: boolean; answers?: Answers };
 
 type Json = Record<string, unknown>;
 
@@ -67,13 +73,16 @@ function resultText(content: unknown): string {
 /** A prompt that arrived from another session / the hub. */
 function peerPrompt(id: string, ts: number, raw: string, origin: Json | undefined): ChatEntry {
   const env = parseEnvelope(raw);
+  const body = str(origin?.body) ?? env.body;
+  const answersFor = parseAnswerMessage(body);
   return {
     kind: "prompt",
     id,
     ts,
     source: "peer",
     from: str(origin?.name) ?? env.fromName ?? env.from,
-    text: clip(str(origin?.body) ?? env.body),
+    text: clip(body),
+    ...(answersFor && { answersFor }),
   };
 }
 
@@ -116,6 +125,7 @@ export function parseRecord(rec: unknown, opts: { sidechain?: boolean } = {}): C
     message.content.forEach((b, i) => {
       if (!isObj(b)) return;
       if (b.type === "tool_result") {
+        const answers = parseAnswers(rec.toolUseResult);
         out.push({
           kind: "result",
           id: `${uuid}:${i}`,
@@ -123,6 +133,7 @@ export function parseRecord(rec: unknown, opts: { sidechain?: boolean } = {}): C
           toolUseId: str(b.tool_use_id) ?? "",
           text: clip(resultText(b.content)),
           isError: b.is_error === true,
+          ...(answers && { answers }),
         });
       } else if (b.type === "text") {
         const text = cleanPrompt(str(b.text) ?? "");
@@ -140,6 +151,11 @@ export function parseRecord(rec: unknown, opts: { sidechain?: boolean } = {}): C
       if (b.type === "text" && str(b.text)?.trim()) out.push({ kind: "text", id, ts, text: clip(str(b.text) ?? "") });
       else if (b.type === "thinking" && str(b.thinking)?.trim()) out.push({ kind: "thinking", id, ts, text: clip(str(b.thinking) ?? "") });
       else if (b.type === "tool_use") {
+        const questions = b.name === ASK_TOOL ? parseQuestions(b.input) : undefined;
+        if (questions) {
+          out.push({ kind: "question", id: str(b.id) ?? id, ts, questions });
+          return;
+        }
         out.push({
           kind: "tool",
           id: str(b.id) ?? id,

@@ -1,6 +1,8 @@
 import type { StoreApi } from "zustand/vanilla";
 import type { HubState, Result } from "../lib/hub-store";
 import type { Session } from "../core/sessions";
+import { chatKey } from "../core/chat-key";
+import { questionStatuses, type Answers, type AskQuestion } from "../core/questions";
 
 /** Slash commands the TUI input line understands. */
 export const HELP = [
@@ -15,6 +17,8 @@ export const HELP = [
   "/subs                        list the open session's subagents",
   "/sub <n|id> · /main          watch a subagent's live chat · back to the session",
   "/stopsub                     ask the parent to stop the open subagent",
+  '/answer <choice…>            answer the open session\'s pending question, one choice per',
+  '                             question: 2 · 1,3 (multi) · "own text" — interrupts the session',
   "anything else                send to the open room / session",
 ].join("\n");
 
@@ -30,6 +34,20 @@ function findSession(sessions: Session[], ref: string): Session | string {
 }
 
 const done = (r: Result<unknown>, ok: string): string => (r.ok ? ok : `✗ ${r.error}`);
+
+/** Split `/answer` arguments: bare words, or "quoted text" kept whole. */
+function tokens(text: string): string[] {
+  return [...text.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? "");
+}
+
+/** One `/answer` token → the answer for that question: option number(s), else free text. */
+function choiceAnswer(q: AskQuestion, token: string): string | { error: string } {
+  if (!/^\d+(,\d+)*$/.test(token)) return token;
+  const picks = token.split(",").map((n) => q.options[Number(n) - 1]?.label);
+  if (picks.some((l) => l === undefined)) return { error: `"${q.header || q.question}" has options 1–${q.options.length}` };
+  if (!q.multiSelect && picks.length > 1) return { error: `"${q.header || q.question}" takes one choice` };
+  return picks.join(", ");
+}
 
 /**
  * Execute one input line. Returns a status message for the footer.
@@ -125,6 +143,24 @@ export async function runInput(store: StoreApi<HubState>, line: string): Promise
       if (!hit) return `✗ no subagent '${ref}' — /subs to list`;
       s.selectAgent(hit.agentId);
       return `watching ${hit.description || hit.agentId} — typing now relays through the parent`;
+    }
+    case "answer": {
+      if (sel?.kind !== "session" || s.selectedAgent) return "Open the session that asked (not a subagent) first";
+      const chat = s.transcripts[chatKey(sel.sessionId)] ?? [];
+      const statuses = questionStatuses(chat);
+      const open = chat.findLast((e) => e.kind === "question" && statuses.get(e.id)?.state === "open");
+      if (open?.kind !== "question") return "✗ no open question in this session";
+      const picks = tokens(text.slice("/answer".length));
+      if (picks.length !== open.questions.length) {
+        return `usage: /answer <choice per question> — this one has ${open.questions.length} question${open.questions.length > 1 ? "s" : ""}`;
+      }
+      const answers: Answers = {};
+      for (const [i, q] of open.questions.entries()) {
+        const a = choiceAnswer(q, picks[i] ?? "");
+        if (typeof a !== "string") return `✗ ${a.error}`;
+        answers[q.question] = a;
+      }
+      return done(await s.answerQuestion(sel.sessionId, open.id, answers), "answers sent — the session was interrupted to receive them");
     }
     case "main":
       s.selectAgent(null);

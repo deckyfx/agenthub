@@ -57,6 +57,14 @@ export function apiPlugin(hub: Hub) {
     .post("/sessions/:id/subagents/:agentId/stop", ({ params }) => hub.relayToSubagent(params.id, params.agentId, "stop"), {
       params: t.Object({ id: t.String(), agentId: t.String({ pattern: AGENT_ID }) }),
     })
+    .post(
+      "/sessions/:id/questions/:toolUseId/answer",
+      ({ params, body }) => hub.answerQuestion(params.id, params.toolUseId, body.answers),
+      {
+        params: t.Object({ id: t.String(), toolUseId: t.String({ pattern: "^[A-Za-z0-9_-]{1,128}$" }) }),
+        body: t.Object({ answers: t.Record(t.String({ maxLength: 2000 }), t.String({ maxLength: 8000 })) }),
+      },
+    )
     .post("/sessions/:id/stop", async ({ params }) => {
       const session = hub.registry.resolve(params.id);
       if (!session.jobId) throw new ValidationError("Only background (claude --bg) sessions can be stopped from AgentHub");

@@ -6,6 +6,7 @@ import { threadKey, type HubState, type Thread } from "../lib/hub-store";
 import type { MessageWithDeliveries } from "../stores/message-store";
 import type { ChatEntry } from "../core/transcript";
 import { chatKey } from "../core/chat-key";
+import { questionStatuses, splitAnswer, type AskQuestion, type QuestionStatus } from "../core/questions";
 import { runInput } from "./commands";
 
 const SIDEBAR_WIDTH = 34;
@@ -56,16 +57,46 @@ function feedLines(messages: MessageWithDeliveries[], width: number): Line[] {
   return lines;
 }
 
+/** An AskUserQuestion: each question with numbered options; picked ones ticked once answered. */
+function questionLines(questions: AskQuestion[], status: QuestionStatus, width: number, answerable: boolean): Line[] {
+  const lines: Line[] = [];
+  const tag = status.state === "open" ? "waiting for an answer" : status.state === "answered" ? `answered ${status.via === "hub" ? "from AgentHub" : "in the session"}` : "dismissed";
+  lines.push({ text: `  ? Claude asked — ${tag}`, color: status.state === "open" ? "yellow" : status.state === "answered" ? "green" : "gray", bold: true });
+  for (const q of questions) {
+    const settled = status.state === "answered" ? splitAnswer(q, status.answers[q.question] ?? "") : undefined;
+    const head = `${q.header ? `[${q.header}] ` : ""}${q.question}${q.multiSelect ? " (pick any)" : ""}`;
+    for (const l of wrap(head, width - 4)) lines.push({ text: `    ${l}`, bold: true });
+    q.options.forEach((o, i) => {
+      const picked = settled?.picked.has(o.label) === true;
+      const text = `${picked ? "✓" : " "} ${i + 1}. ${o.label}${o.description ? ` — ${o.description}` : ""}`;
+      lines.push({ text: `     ${text}`.slice(0, width), color: picked ? "green" : undefined, dim: settled !== undefined && !picked });
+    });
+    if (settled?.other) for (const l of wrap(`✓ ${settled.other}`, width - 5)) lines.push({ text: `     ${l}`, color: "green" });
+  }
+  if (status.state === "dismissed" && status.reason) lines.push({ text: `    ${status.reason}`.slice(0, width), dim: true });
+  if (status.state === "open") {
+    lines.push(
+      answerable
+        ? { text: `    /answer <choice per question>  e.g. /answer 1 2 · multi 1,3 · own text "…"`.slice(0, width), color: "yellow" }
+        : { text: "    waiting for the session's user", dim: true },
+    );
+  }
+  return lines;
+}
+
 /** Render a live chat (transcript) as wrapped, styled lines. */
-function chatLines(entries: ChatEntry[], width: number, busy: boolean): Line[] {
+function chatLines(entries: ChatEntry[], width: number, busy: boolean, answerable: boolean): Line[] {
   const lines: Line[] = [];
   const results = new Map<string, Extract<ChatEntry, { kind: "result" }>>();
   for (const e of entries) if (e.kind === "result") results.set(e.toolUseId, e);
+  const questions = questionStatuses(entries);
   let lastRole = "";
   for (const e of entries) {
     if (e.kind === "result") continue;
     const role = e.kind === "prompt" ? e.source : "assistant";
-    if (e.kind === "prompt") {
+    if (e.kind === "prompt" && e.answersFor) {
+      lines.push({ text: `  ✓ answers to the question above, sent from AgentHub`, dim: true });
+    } else if (e.kind === "prompt") {
       const head = e.source === "peer" ? `↘ ${e.from ?? "peer"}` : "▶ user";
       lines.push({ text: `${hhmm(e.ts)} ${head}`, color: e.source === "peer" ? "yellow" : "blueBright", bold: true });
       for (const l of wrap(e.text, width - 2)) lines.push({ text: `  ${l}` });
@@ -73,6 +104,7 @@ function chatLines(entries: ChatEntry[], width: number, busy: boolean): Line[] {
       if (role !== lastRole) lines.push({ text: `${hhmm(e.ts)} ◆ claude`, color: "green", bold: true });
       if (e.kind === "text") for (const l of wrap(e.text, width - 2)) lines.push({ text: `  ${l}` });
       else if (e.kind === "thinking") lines.push({ text: `  … thinking (${e.text.length} chars)`, dim: true });
+      else if (e.kind === "question") lines.push(...questionLines(e.questions, questions.get(e.id) ?? { state: "open" }, width, answerable));
       else {
         const r = results.get(e.id);
         const mark = r ? (r.isError ? " ✗" : " ✓") : busy ? " …" : "";
@@ -216,7 +248,7 @@ export function TuiApp({ store, startedServer }: { store: StoreApi<HubState>; st
   const lines = panel
     ? panel.split("\n").map((t) => ({ text: t, color: "white" }) as Line)
     : sessionId
-      ? chatLines(transcripts[chatKey(sessionId, selectedAgent ?? undefined)] ?? [], mainWidth, agent ? agent.active : session?.status === "busy")
+      ? chatLines(transcripts[chatKey(sessionId, selectedAgent ?? undefined)] ?? [], mainWidth, agent ? agent.active : session?.status === "busy", !!session && !agent)
       : key
         ? feedLines(threads[key] ?? [], mainWidth)
         : [

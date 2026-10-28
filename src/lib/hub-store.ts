@@ -6,6 +6,7 @@ import type { Session } from "../core/sessions";
 import type { MessageWithDeliveries } from "../stores/message-store";
 import type { PermissionMode } from "../core/permission-modes";
 import type { ChatEntry, SubagentInfo } from "../core/transcript";
+import type { Answers } from "../core/questions";
 import { chatKey } from "../core/chat-key";
 
 /** Live-chat entries kept per session in memory. */
@@ -79,6 +80,8 @@ export interface HubState {
   selectAgent(agentId: string | null): void;
   /** Ask a session to message / stop one of its subagents (relayed through the parent). */
   relayToSubagent(sessionId: string, agentId: string, action: "message" | "stop", body?: string): Promise<Result>;
+  /** Answer an AskUserQuestion still open in a session (interrupts its turn; see Hub.answerQuestion). */
+  answerQuestion(sessionId: string, toolUseId: string, answers: Answers): Promise<Result>;
   loadThread(thread: Thread): Promise<void>;
   send(thread: Thread, body: string): Promise<Result>;
   createRoom(input: { name: string; topic?: string; context?: string }): Promise<Result<RoomView>>;
@@ -271,6 +274,11 @@ export function createHubStore(api: Api): StoreApi<HubState> {
       async relayToSubagent(sessionId, agentId, action, body) {
         const target = api.api.sessions({ id: sessionId }).subagents({ agentId });
         const r = toResult(action === "stop" ? await target.stop.post() : await target.messages.post({ body: body ?? "" }));
+        return r.ok ? { ok: true, data: undefined } : r;
+      },
+
+      async answerQuestion(sessionId, toolUseId, answers) {
+        const r = toResult(await api.api.sessions({ id: sessionId }).questions({ toolUseId }).answer.post({ answers }));
         return r.ok ? { ok: true, data: undefined } : r;
       },
 

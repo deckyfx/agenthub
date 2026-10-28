@@ -30,6 +30,7 @@ src/
 │   ├── hub.ts            # Hub: routing, rooms, fan-out, queueing, burst guard, spawn
 │   ├── transcript.ts     # ★ live chat: parse/tail ~/.claude/projects/<cwd>/<sid>.jsonl + subagents
 │   ├── chat-key.ts       # browser-safe chat key (session or session/agentId)
+│   ├── questions.ts      # browser-safe AskUserQuestion: parse, statuses, the hub's answer message
 │   ├── spawner.ts        # claude --bg / claude stop
 │   └── permission-modes.ts # browser-safe constants
 ├── db/                   # schema (rooms, room_members, messages, deliveries), migrate, embed-migrations
@@ -58,6 +59,7 @@ Everything below lives in `core/peer-protocol.ts`. If delivery breaks after a Cl
 - Subagents: `<projects>/<cwd>/<sessionId>/subagents/agent-<id>.jsonl` + `.meta.json` (`agentType`, `description`, `requestShape`). Their records are `isSidechain: true` (kept only when reading a subagent file). "Active" = written within 30 s.
 - History reads only the last 1.5 MB. Tails advance past the last `\n` only (torn writes wait). Tails are ref-counted per chat key and exist only while a client watches. Clients send `{type:"watch"|"unwatch", sessionId, agentId?}` over `/api/ws`; entries go to topic `transcript:<chatKey>`.
 - Subagents have **no socket**: "message" / "stop" are relayed as a hub DM asking the parent to use SendMessage / TaskStop (`Hub.relayToSubagent`). It's a request to the parent's model, not guaranteed.
+- AskUserQuestion: the `tool_use` becomes a `question` entry; its result's `toolUseResult.answers` holds the picks. A peer can't fill the dialog, so `Hub.answerQuestion` re-checks the transcript (still open?) and sends `formatAnswerMessage()` at **priority `now`**, which makes Claude Code abort the turn (`_abortOnNowPriorityCommand`). The interrupted result is `is_error`; the arriving prompt carries `answersFor`, and `questionStatuses()` prefers it.
 
 ## Routing rules (core/hub.ts)
 

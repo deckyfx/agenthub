@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
 import { AlertTriangle, Brain, Check, ChevronRight, Loader2, Wrench } from "lucide-react";
 import type { ChatEntry } from "../../core/transcript";
+import { questionStatuses, type Answers } from "../../core/questions";
+import type { Result } from "../../lib/hub-store";
 import { clock } from "../lib/format";
+import { QuestionCard } from "./QuestionCard";
 import { cx } from "./ui";
 
 type ResultEntry = Extract<ChatEntry, { kind: "result" }>;
@@ -66,21 +69,32 @@ function Thinking({ text }: { text: string }) {
 
 /**
  * A Claude Code conversation rendered from its transcript: prompts, peer
- * messages, replies, thinking, and tool calls paired with their results.
- * Sticks to the bottom unless the reader scrolled up.
+ * messages, replies, thinking, tool calls paired with their results, and
+ * AskUserQuestion cards (answerable when `onAnswer` is given). Sticks to the
+ * bottom unless the reader scrolled up.
  */
-export function ChatView({ entries, busy, empty }: { entries: ChatEntry[] | undefined; busy: boolean; empty: string }) {
+export function ChatView({
+  entries,
+  busy,
+  empty,
+  onAnswer,
+}: {
+  entries: ChatEntry[] | undefined;
+  busy: boolean;
+  empty: string;
+  onAnswer?: (toolUseId: string, answers: Answers) => Promise<Result>;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
-  const { items, results } = useMemo(() => {
+  const { items, results, questions } = useMemo(() => {
     const results = new Map<string, ResultEntry>();
     const items: ChatEntry[] = [];
     for (const e of entries ?? []) {
       if (e.kind === "result") results.set(e.toolUseId, e);
       else items.push(e);
     }
-    return { items, results };
+    return { items, results, questions: questionStatuses(entries ?? []) };
   }, [entries]);
 
   useEffect(() => {
@@ -114,7 +128,12 @@ export function ChatView({ entries, busy, empty }: { entries: ChatEntry[] | unde
                 <span className="text-[11px] text-zinc-600">{clock(e.ts)}</span>
               </div>
             )}
-            {e.kind === "prompt" && (
+            {e.kind === "prompt" && e.answersFor && (
+              <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+                <Check className="size-3.5 text-emerald-500" /> Answers to the question above, sent from AgentHub
+              </p>
+            )}
+            {e.kind === "prompt" && !e.answersFor && (
               <p className={cx("rounded-md px-3 py-2 text-sm whitespace-pre-wrap break-words", e.source === "peer" ? "bg-amber-500/5 text-zinc-200" : "bg-indigo-500/10 text-zinc-100")}>
                 {e.text}
               </p>
@@ -122,6 +141,13 @@ export function ChatView({ entries, busy, empty }: { entries: ChatEntry[] | unde
             {e.kind === "text" && <p className="text-sm leading-relaxed whitespace-pre-wrap break-words text-zinc-200">{e.text}</p>}
             {e.kind === "thinking" && <Thinking text={e.text} />}
             {e.kind === "tool" && <ToolCall entry={e} result={results.get(e.id)} running={busy && i >= items.length - 3} />}
+            {e.kind === "question" && (
+              <QuestionCard
+                questions={e.questions}
+                status={questions.get(e.id) ?? { state: "open" }}
+                onAnswer={onAnswer && ((answers) => onAnswer(e.id, answers))}
+              />
+            )}
           </div>
         );
       })}

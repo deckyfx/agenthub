@@ -1,6 +1,6 @@
 import { TypedEmitter } from "../lib/emitter";
 import { catchError, catchErrorTyped } from "../lib/error-handler";
-import { ConflictError, SessionNotFoundError } from "../errors/custom-errors";
+import { ConflictError, SessionNotFoundError, ValidationError } from "../errors/custom-errors";
 import { envConfig } from "../env-config";
 import { RoomStore } from "../stores/room-store";
 import { MessageStore, type MessageWithDeliveries } from "../stores/message-store";
@@ -8,7 +8,8 @@ import type { DeliveryStatus, Message, Room, RoomMember } from "../db/schema";
 import { SessionRegistry, type Session } from "./sessions";
 import { HubInbox } from "./hub-inbox";
 import { sendToSession } from "./peer-client";
-import { socketPathFromAddress, SUPPORTED_PEER_PROTOCOL, type PeerUserFrame } from "./peer-protocol";
+import { socketPathFromAddress, SUPPORTED_PEER_PROTOCOL, type PeerPriority, type PeerUserFrame } from "./peer-protocol";
+import { answersProblem, formatAnswerMessage, type Answers } from "./questions";
 import { spawnSession, type SpawnRequest, type SpawnResult } from "./spawner";
 import { chatKey } from "./chat-key";
 import {
@@ -294,8 +295,9 @@ export class Hub extends TypedEmitter<HubEvents> {
    * Message one session directly as the operator.
    *
    * @param ref pid, session id, or unique name
+   * @param priority `now` interrupts the session's current turn; default `next`
    */
-  async sendDirect(ref: string, body: string): Promise<MessageWithDeliveries> {
+  async sendDirect(ref: string, body: string, priority?: PeerPriority): Promise<MessageWithDeliveries> {
     const session = this.registry.resolve(ref);
     const message = MessageStore.create({
       roomId: null,
@@ -306,8 +308,35 @@ export class Hub extends TypedEmitter<HubEvents> {
       recipients: [session.sessionId],
     });
     this.push({ type: "message", message });
-    await this.deliver(message);
+    await this.deliver(message, priority);
     return MessageStore.get(message.id) ?? message;
+  }
+
+  /**
+   * Answer an AskUserQuestion that is still open in a session's dialog. Claude
+   * Code has no way for a peer to fill in the dialog, so this sends the
+   * answers at priority `now`: the session's turn is interrupted (closing the
+   * dialog) and the answers arrive as its next prompt.
+   *
+   * Checked against the transcript first so a question answered at the
+   * terminal (or a turn that moved on) is never interrupted.
+   *
+   * @throws SessionNotFoundError if the session isn't running
+   * @throws ConflictError if the question is unknown or no longer open
+   * @throws ValidationError if a question is unanswered or the answers name another question
+   */
+  async answerQuestion(ref: string, toolUseId: string, answers: Answers): Promise<MessageWithDeliveries> {
+    const session = this.registry.resolve(ref);
+    const chat = await this.transcriptHistory(session.sessionId);
+    const asked = chat.find((e) => e.kind === "question" && e.id === toolUseId);
+    if (asked?.kind !== "question") throw new ConflictError("That question isn't in the session's recent conversation");
+    const settled = chat.some(
+      (e) => (e.kind === "result" && e.toolUseId === toolUseId) || (e.kind === "prompt" && e.answersFor?.toolUseId === toolUseId),
+    );
+    if (settled) throw new ConflictError("That question was already answered");
+    const problem = answersProblem(asked.questions, answers);
+    if (problem) throw new ValidationError(problem, "answers");
+    return this.sendDirect(session.sessionId, formatAnswerMessage(toolUseId, asked.questions, answers), "now");
   }
 
   /** Room members a message goes to: mentioned aliases, else everyone but the sender. */
@@ -329,8 +358,8 @@ export class Hub extends TypedEmitter<HubEvents> {
   }
 
   /** Attempt every pending delivery of a message to recipients that are online now. */
-  private async deliver(message: MessageWithDeliveries): Promise<void> {
-    const rendered = this.outbound(message);
+  private async deliver(message: MessageWithDeliveries, priority?: PeerPriority): Promise<void> {
+    const rendered = { ...this.outbound(message), priority };
     await Promise.all(
       message.deliveries
         .filter((d) => d.status === "pending")
@@ -342,7 +371,7 @@ export class Hub extends TypedEmitter<HubEvents> {
     );
   }
 
-  private async deliverOne(messageId: number, session: Session, rendered: { fromName: string; body: string }): Promise<void> {
+  private async deliverOne(messageId: number, session: Session, rendered: { fromName: string; body: string; priority?: PeerPriority }): Promise<void> {
     const [err] = await catchError(sendToSession(session, { from: this.address, ...rendered }));
     const status: DeliveryStatus = err ? "failed" : "sent";
     MessageStore.setDelivery(messageId, session.sessionId, status, err?.message);

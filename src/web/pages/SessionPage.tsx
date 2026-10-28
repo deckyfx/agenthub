@@ -164,6 +164,8 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
             entries={chat}
             busy={agent ? agent.active : session?.status === "busy"}
             empty={agent ? "This subagent hasn't written anything yet." : "No transcript yet. It appears once the session's first turn starts."}
+            // Only a live session's own questions can be answered (subagents have no dialog to close).
+            onAnswer={session && !agent ? (toolUseId, answers) => hubStore.getState().answerQuestion(sessionId, toolUseId, answers) : undefined}
           />
           {agent ? (
             <Composer
